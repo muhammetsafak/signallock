@@ -433,6 +433,7 @@ fn select_method() -> Option<LockMethod> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
     use crate::platform::test_util::TestDir;
 
     #[test]

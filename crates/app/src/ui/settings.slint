@@ -1,0 +1,206 @@
+// Settings window. Mirrors macos/Sources/SignalLock/Views/SettingsView.swift
+// and windows/UI/SettingsForm.cs. Every change is applied immediately (the
+// references have no Save button); the Rust side (src/ui/mod.rs) owns the
+// values and writes them back through the properties below.
+
+import { Button, Palette, Slider, SpinBox, Switch } from "std-widgets.slint";
+
+component SectionTitle inherits Text {
+    font-weight: 700;
+    color: Palette.foreground;
+}
+
+component Hint inherits Text {
+    font-size: 12px;
+    wrap: word-wrap;
+    color: Palette.foreground.with-alpha(0.7);
+}
+
+export component SettingsWindow inherits Window {
+    title: "SignalLock Settings";
+    background: Palette.background;
+    preferred-width: 460px;
+    min-width: 460px;
+    max-width: 460px;
+    min-height: content.min-height;
+    max-height: content.preferred-height;
+
+    // Allowed ranges, set once from signallock-core so they live in one place.
+    in property <int> threshold-min: -100;
+    in property <int> threshold-max: -40;
+    in property <int> away-delay-min: 5;
+    in property <int> away-delay-max: 120;
+    in property <int> smoothing-min: 1;
+    in property <int> smoothing-max: 20;
+
+    in property <bool> has-trusted-device;
+    in property <string> trusted-name;
+    in property <string> trusted-identifier;
+    in-out property <bool> monitoring-on;
+    in-out property <float> rssi-threshold: -80;
+    in-out property <int> away-delay: 20;
+    in-out property <int> smoothing-window: 5;
+    in-out property <bool> start-at-login;
+
+    callback monitoring-toggled(bool);
+    callback rssi-threshold-changed(int);
+    callback away-delay-changed(int);
+    callback smoothing-window-changed(int);
+    callback start-at-login-toggled(bool);
+    callback change-device();
+    callback forget-device();
+    callback close-window();
+
+    content := VerticalLayout {
+        padding: 20px;
+        spacing: 16px;
+
+        // Monitoring
+        VerticalLayout {
+            spacing: 6px;
+            SectionTitle { text: "Monitoring"; }
+            Switch {
+                text: "Enable monitoring";
+                enabled: root.has-trusted-device;
+                checked <=> root.monitoring-on;
+                toggled => { root.monitoring-toggled(self.checked); }
+            }
+            if !root.has-trusted-device : Hint {
+                text: "Select a trusted device first.";
+            }
+        }
+
+        // Sensitivity
+        VerticalLayout {
+            spacing: 6px;
+            SectionTitle { text: "Sensitivity"; }
+            HorizontalLayout {
+                Text {
+                    text: "RSSI threshold";
+                    color: Palette.foreground;
+                    horizontal-stretch: 1;
+                }
+                Text {
+                    text: Math.round(root.rssi-threshold) + " dBm";
+                    color: Palette.foreground.with-alpha(0.7);
+                    horizontal-alignment: right;
+                }
+            }
+            Slider {
+                minimum: root.threshold-min;
+                maximum: root.threshold-max;
+                step: 1;
+                value <=> root.rssi-threshold;
+                accessible-label: "RSSI threshold in dBm";
+                changed(value) => { root.rssi-threshold-changed(Math.round(value)); }
+            }
+            Hint {
+                text: "Signals weaker than this are treated as 'far'. -80 dBm is a safe default.";
+            }
+        }
+
+        // Away delay
+        VerticalLayout {
+            spacing: 6px;
+            SectionTitle { text: "Away delay"; }
+            HorizontalLayout {
+                spacing: 12px;
+                Text {
+                    text: "Lock after this many seconds of being away";
+                    color: Palette.foreground;
+                    wrap: word-wrap;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                }
+                SpinBox {
+                    width: 120px;
+                    minimum: root.away-delay-min;
+                    maximum: root.away-delay-max;
+                    step-size: 5;
+                    value <=> root.away-delay;
+                    accessible-label: "Away delay in seconds";
+                    edited(value) => { root.away-delay-changed(value); }
+                }
+            }
+            Hint { text: "Higher values reduce false locks from BLE noise."; }
+        }
+
+        // Smoothing
+        VerticalLayout {
+            spacing: 6px;
+            SectionTitle { text: "Smoothing"; }
+            HorizontalLayout {
+                spacing: 12px;
+                Text {
+                    text: "Average over this many samples";
+                    color: Palette.foreground;
+                    wrap: word-wrap;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                }
+                SpinBox {
+                    width: 120px;
+                    minimum: root.smoothing-min;
+                    maximum: root.smoothing-max;
+                    step-size: 1;
+                    value <=> root.smoothing-window;
+                    accessible-label: "Smoothing window in samples";
+                    edited(value) => { root.smoothing-window-changed(value); }
+                }
+            }
+        }
+
+        // Startup
+        VerticalLayout {
+            spacing: 6px;
+            SectionTitle { text: "Startup"; }
+            Switch {
+                text: "Start at login";
+                checked <=> root.start-at-login;
+                toggled => { root.start-at-login-toggled(self.checked); }
+            }
+        }
+
+        // Trusted device
+        VerticalLayout {
+            spacing: 6px;
+            SectionTitle { text: "Trusted device"; }
+            HorizontalLayout {
+                spacing: 12px;
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    Text {
+                        text: root.has-trusted-device ? root.trusted-name : "No device selected.";
+                        color: root.has-trusted-device ? Palette.foreground : Palette.foreground.with-alpha(0.7);
+                        font-weight: root.has-trusted-device ? 700 : 400;
+                        overflow: elide;
+                    }
+                    if root.has-trusted-device : Text {
+                        text: root.trusted-identifier;
+                        font-size: 11px;
+                        color: Palette.foreground.with-alpha(0.7);
+                        overflow: elide;
+                    }
+                }
+                Button {
+                    text: "Change…";
+                    clicked => { root.change-device(); }
+                }
+                Button {
+                    text: "Forget";
+                    enabled: root.has-trusted-device;
+                    clicked => { root.forget-device(); }
+                }
+            }
+        }
+
+        HorizontalLayout {
+            alignment: end;
+            Button {
+                text: "Close";
+                primary: true;
+                clicked => { root.close-window(); }
+            }
+        }
+    }
+}

@@ -1,0 +1,145 @@
+// Device Picker window. Mirrors macos/Sources/SignalLock/Views/DeviceSelectionView.swift
+// and windows/UI/DeviceSelectionForm.cs: a live list of nearby BLE devices,
+// strongest signal first. The Rust side (src/ui/mod.rs) owns the list.
+
+import { Button, ListView, Palette, Spinner } from "std-widgets.slint";
+
+export enum BluetoothStatus {
+    ready,
+    powered-off,
+    unauthorized,
+    unsupported,
+    unknown,
+}
+
+export struct DeviceRow {
+    name: string,
+    identifier: string,
+    rssi: int,
+}
+
+// One row. The `Select` button reads `device` when it is clicked, so the Rust
+// side never gives a live row a different device (see `sync_rows` in mod.rs).
+component DeviceRowView inherits Rectangle {
+    in property <DeviceRow> device;
+    callback chosen(string);
+
+    min-height: 52px;
+
+    VerticalLayout {
+        padding-left: 8px;
+        padding-right: 8px;
+        padding-top: 6px;
+        padding-bottom: 6px;
+        HorizontalLayout {
+            spacing: 12px;
+            VerticalLayout {
+                horizontal-stretch: 1;
+                alignment: center;
+                Text {
+                    text: root.device.name;
+                    color: Palette.foreground;
+                    overflow: elide;
+                }
+                Text {
+                    text: root.device.identifier;
+                    font-size: 11px;
+                    color: Palette.foreground.with-alpha(0.7);
+                    overflow: elide;
+                }
+            }
+            Text {
+                text: root.device.rssi + " dBm";
+                color: Palette.foreground.with-alpha(0.7);
+                vertical-alignment: center;
+            }
+            Button {
+                text: "Select";
+                accessible-description: "Trust " + root.device.name;
+                clicked => { root.chosen(root.device.identifier); }
+            }
+        }
+    }
+}
+
+export component DevicePickerWindow inherits Window {
+    title: "Select Trusted Device";
+    background: Palette.background;
+    preferred-width: 520px;
+    preferred-height: 460px;
+    min-width: 440px;
+    min-height: 360px;
+
+    in property <BluetoothStatus> bluetooth-status: BluetoothStatus.unknown;
+    in property <[DeviceRow]> devices;
+
+    callback select-device(string);
+    callback done();
+
+    VerticalLayout {
+        padding: 16px;
+        spacing: 12px;
+
+        HorizontalLayout {
+            spacing: 12px;
+            Text {
+                text: "Select Trusted Device";
+                font-size: 17px;
+                font-weight: 700;
+                color: Palette.foreground;
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+            }
+            Button {
+                text: "Done";
+                primary: true;
+                clicked => { root.done(); }
+            }
+        }
+
+        Text {
+            wrap: word-wrap;
+            color: root.bluetooth-status == BluetoothStatus.ready || root.bluetooth-status == BluetoothStatus.unknown
+                ? Palette.foreground.with-alpha(0.7)
+                : Palette.foreground;
+            font-weight: root.bluetooth-status == BluetoothStatus.ready || root.bluetooth-status == BluetoothStatus.unknown ? 400 : 700;
+            text: root.bluetooth-status == BluetoothStatus.ready
+                ? "Bring your trusted device close to this computer. Pick the device with the strongest signal."
+                : root.bluetooth-status == BluetoothStatus.powered-off
+                ? "Bluetooth is turned off. Turn it on in your system settings."
+                : root.bluetooth-status == BluetoothStatus.unauthorized
+                ? "SignalLock does not have permission to use Bluetooth. Allow it in your system's privacy settings."
+                : root.bluetooth-status == BluetoothStatus.unsupported
+                ? "This computer does not support Bluetooth Low Energy."
+                : "Initializing Bluetooth…";
+        }
+
+        if root.devices.length == 0 : HorizontalLayout {
+            alignment: center;
+            spacing: 12px;
+            padding-top: 24px;
+            Spinner {
+                indeterminate: true;
+                width: 20px;
+                height: 20px;
+                accessible-label: "Scanning";
+            }
+            Text {
+                text: "Scanning…";
+                color: Palette.foreground.with-alpha(0.7);
+                vertical-alignment: center;
+            }
+        }
+
+        if root.devices.length > 0 : ListView {
+            vertical-stretch: 1;
+            for device in root.devices : DeviceRowView {
+                device: device;
+                chosen(identifier) => { root.select-device(identifier); }
+            }
+        }
+
+        // Keeps the list area from collapsing while it is empty.
+        if root.devices.length == 0 : Rectangle { vertical-stretch: 1; }
+    }
+}
