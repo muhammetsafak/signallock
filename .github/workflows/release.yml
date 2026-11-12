@@ -4,9 +4,12 @@ name: Release
 # GitHub Release of THIS repository (ADR-012, amended by ADR-014):
 #
 #   SignalLock-<version>.dmg              macOS, universal, signed + notarized
+#   SignalLock-<version>-macos.app.zip    the same signed, notarized and stapled
+#                                         bundle as the dmg, zipped with `ditto`;
+#                                         what the in-app updater downloads (ADR-015)
 #   SignalLock-<version>-setup.exe        Windows installer (Inno Setup), unsigned
 #   SignalLock-<version>-x86_64.AppImage  Linux
-#   ...each with a <file>.sha256
+#   ...each with a <file>.sha256 (one line: `<64 hex>  <asset name>`)
 #
 # Assets carry ONLY the versioned name: no stable-named copy, and nothing may
 # link to releases/latest/download (user decision, 2026-11-12).
@@ -47,9 +50,9 @@ name: Release
 # The unsigned bundle travels between the two macOS jobs as a workflow
 # artifact. Its SHA-256 is published by build-macos as a job output (which no
 # other job can change) and sign-macos refuses to unpack anything else.
-# The same holds for publishing: sign-macos, windows and linux each publish the
-# SHA-256 of their package as a job output, and publish refuses to release a
-# file whose hash differs from it.
+# The same holds for publishing: sign-macos (dmg and .app.zip), windows and
+# linux each publish the SHA-256 of their package as a job output, and publish
+# refuses to release a file whose hash differs from it.
 
 on:
   push:
@@ -154,6 +157,7 @@ jobs:
     environment: release
     outputs:
       package_sha256: ${{ steps.package-hash.outputs.sha256 }}
+      app_zip_sha256: ${{ steps.app-zip.outputs.sha256 }}
     env:
       VERSION: ${{ needs.verify-version.outputs.version }}
     steps:
@@ -310,6 +314,40 @@ jobs:
           echo "DMG SHA-256: ${sha256}"
           echo "sha256=${sha256}" >> "${GITHUB_OUTPUT}"
 
+      # The in-app updater's macOS asset: the very bundle that was just signed,
+      # notarized and stapled for the dmg (make-dmg.sh stapled it in place), zipped
+      # as it is. Nothing is re-signed here. The archive is unpacked again and the
+      # copy is checked, so a zip that lost its signature or ticket never ships.
+      - name: Pack the signed bundle as .app.zip
+        id: app-zip
+        run: |
+          set -euo pipefail
+          name="SignalLock-${VERSION}-macos.app.zip"
+          zip="dist/${name}"
+          ditto -c -k --keepParent target/SignalLock.app "${zip}"
+
+          check="${RUNNER_TEMP}/app-zip-check"
+          rm -rf "${check}"
+          mkdir -p "${check}"
+          ditto -x -k "${zip}" "${check}"
+          unpacked="${check}/SignalLock.app"
+          test -x "${unpacked}/Contents/MacOS/SignalLock"
+          codesign --verify --deep --strict --verbose=2 "${unpacked}"
+          xcrun stapler validate "${unpacked}"
+          spctl --assess --type execute --verbose=2 "${unpacked}"
+          archs="$(lipo -archs "${unpacked}/Contents/MacOS/SignalLock")"
+          if [[ "${archs}" != *x86_64* || "${archs}" != *arm64* ]]; then
+            echo "::error::Unpacked .app.zip is not universal (archs: ${archs})."
+            exit 1
+          fi
+          rm -rf "${check}"
+
+          sha256="$(shasum -a 256 "${zip}" | awk '{print $1}')"
+          printf '%s  %s\n' "${sha256}" "${name}" > "${zip}.sha256"
+          (cd dist && shasum -a 256 -c "${name}.sha256")
+          echo ".app.zip SHA-256: ${sha256}"
+          echo "sha256=${sha256}" >> "${GITHUB_OUTPUT}"
+
       - name: Remove the temporary keychain
         if: always()
         run: |
@@ -324,6 +362,8 @@ jobs:
           path: |
             dist/SignalLock-${{ needs.verify-version.outputs.version }}.dmg
             dist/SignalLock-${{ needs.verify-version.outputs.version }}.dmg.sha256
+            dist/SignalLock-${{ needs.verify-version.outputs.version }}-macos.app.zip
+            dist/SignalLock-${{ needs.verify-version.outputs.version }}-macos.app.zip.sha256
           if-no-files-found: error
 
   windows:
@@ -496,6 +536,7 @@ jobs:
       - name: Verify every package against its job output
         env:
           DMG_SHA256: ${{ needs.sign-macos.outputs.package_sha256 }}
+          APP_ZIP_SHA256: ${{ needs.sign-macos.outputs.app_zip_sha256 }}
           EXE_SHA256: ${{ needs.windows.outputs.package_sha256 }}
           APPIMAGE_SHA256: ${{ needs.linux.outputs.package_sha256 }}
         run: |
@@ -517,11 +558,44 @@ jobs:
             echo "ok  ${file}  ${expected}"
           }
           check "SignalLock-${VERSION}.dmg" "${DMG_SHA256}"
+          check "SignalLock-${VERSION}-macos.app.zip" "${APP_ZIP_SHA256}"
           check "SignalLock-${VERSION}-setup.exe" "${EXE_SHA256}"
           check "SignalLock-${VERSION}-x86_64.AppImage" "${APPIMAGE_SHA256}"
           # Only the versioned names are published (no stable-named copy, no strays).
-          test "$(find . -maxdepth 1 -type f | wc -l)" -eq 6
+          test "$(find . -maxdepth 1 -type f | wc -l)" -eq 8
           ls -l
+
+      # The in-app updater reads these files, so their shape is part of the
+      # release contract: exactly one line, `<64 lowercase hex>  <asset name>`
+      # (two spaces), LF-terminated, and the name is the asset the file belongs to.
+      - name: Check the .sha256 file format
+        run: |
+          set -euo pipefail
+          cd dist
+          shopt -s nullglob
+          sums=(*.sha256)
+          if [[ ${#sums[@]} -ne 4 ]]; then
+            echo "::error title=Unexpected checksum files::Expected 4 .sha256 files, found ${#sums[@]}: ${sums[*]}"
+            exit 1
+          fi
+          for sum in "${sums[@]}"; do
+            asset="${sum%.sha256}"
+            test -f "${asset}" || { echo "::error::${sum} has no matching asset ${asset}"; exit 1; }
+            if [[ "$(wc -l < "${sum}" | tr -d '[:space:]')" != "1" ]]; then
+              echo "::error title=Bad .sha256 format::${sum} must hold exactly one newline-terminated line."
+              exit 1
+            fi
+            line="$(cat "${sum}")"
+            if [[ ! "${line}" =~ ^[0-9a-f]{64}\ \ [^[:space:]]+$ ]]; then
+              echo "::error title=Bad .sha256 format::${sum} is not '<64 hex>  <asset name>'."
+              exit 1
+            fi
+            if [[ "${line:66}" != "${asset}" ]]; then
+              echo "::error title=Bad .sha256 format::${sum} names '${line:66}' instead of '${asset}'."
+              exit 1
+            fi
+            echo "format ok  ${sum}"
+          done
 
       - name: Write the release notes
         run: |
@@ -549,6 +623,8 @@ jobs:
           gh release create "${TAG}" \
             "dist/SignalLock-${VERSION}.dmg" \
             "dist/SignalLock-${VERSION}.dmg.sha256" \
+            "dist/SignalLock-${VERSION}-macos.app.zip" \
+            "dist/SignalLock-${VERSION}-macos.app.zip.sha256" \
             "dist/SignalLock-${VERSION}-setup.exe" \
             "dist/SignalLock-${VERSION}-setup.exe.sha256" \
             "dist/SignalLock-${VERSION}-x86_64.AppImage" \
