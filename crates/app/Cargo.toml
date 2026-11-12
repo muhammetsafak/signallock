@@ -1,0 +1,59 @@
+[package]
+name = "signallock"
+description = "SignalLock desktop app: locks the computer when a trusted Bluetooth device goes out of range."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+build = "build.rs"
+
+[[bin]]
+name = "signallock"
+path = "src/main.rs"
+
+[dependencies]
+signallock-core = { path = "../core" }
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+tracing-appender = "0.2.5"
+directories = "6.0.0"
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "time", "sync"] }
+btleplug = "0.13.5"
+futures = "0.3.34"
+uuid = "1.29.2"
+slint = "1.18.1"
+image = { version = "0.25.10", default-features = false, features = ["png"] }
+
+[build-dependencies]
+slint-build = "1.18.1"
+
+# macOS and Windows use tray-icon's native backends (AppKit, Win32).
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+tray-icon = "0.26.1"
+muda = "0.21.2"
+
+# Linux uses the StatusNotifierItem (ksni) backend so that no GTK event loop
+# is needed. Default features are off (tray-icon and muda) because the default
+# ones pull GTK.
+[target.'cfg(target_os = "linux")'.dependencies]
+tray-icon = { version = "0.26.1", default-features = false, features = ["ksni"] }
+muda = { version = "0.21.2", default-features = false }
+zbus = "6.2.1"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.5"
+objc2-foundation = "0.3.2"
+objc2-service-management = "0.3.2"
+libc = "0.2.191"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.62.2", features = [
+    "Win32_Foundation",
+    "Win32_System_Shutdown",
+    "Win32_System_RemoteDesktop",
+    "Win32_UI_WindowsAndMessaging",
+] }
+winreg = "0.56.0"
