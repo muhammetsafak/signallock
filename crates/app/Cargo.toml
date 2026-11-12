@@ -31,6 +31,11 @@ chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
 [build-dependencies]
 slint-build = "1.18.1"
 
+# Embeds the exe icon, version info and DPI-awareness manifest (build.rs).
+# Windows hosts only: the Windows package is built on Windows (CI).
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1.34"
+
 # macOS and Windows use tray-icon's native backends (AppKit, Win32).
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 tray-icon = "0.26.1"

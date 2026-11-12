@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=SignalLock
+GenericName=Proximity Lock
+Comment=Locks your computer when a trusted Bluetooth device moves out of range
+Exec=signallock
+Icon=signallock
+Terminal=false
+Categories=Utility;Security;
+Keywords=bluetooth;lock;proximity;security;
+StartupNotify=false
