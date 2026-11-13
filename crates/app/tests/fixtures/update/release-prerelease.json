@@ -1,0 +1,147 @@
+{
+  "url": "https://api.github.com/repos/muhammetsafak/signallock/releases/1",
+  "html_url": "https://github.com/muhammetsafak/signallock/releases/tag/v1.1.0",
+  "id": 1,
+  "tag_name": "v1.1.0",
+  "target_commitish": "main",
+  "name": "v1.1.0",
+  "draft": false,
+  "prerelease": true,
+  "created_at": "2026-11-20T10:00:00Z",
+  "published_at": "2026-11-20T10:05:00Z",
+  "assets": [
+    {
+      "url": "https://api.github.com/repos/muhammetsafak/signallock/releases/assets/1",
+      "id": 1,
+      "node_id": "RA_x",
+      "name": "SignalLock-1.1.0-macos.app.zip",
+      "content_type": "application/octet-stream",
+      "state": "uploaded",
+      "size": 12345678,
+      "download_count": 0,
+      "browser_download_url": "https://github.com/muhammetsafak/signallock/releases/download/v1.1.0/SignalLock-1.1.0-macos.app.zip"
+    },
+    {
+      "url": "https://api.github.com/repos/muhammetsafak/signallock/releases/assets/1",
+      "id": 1,
+      "node_id": "RA_x",
+      "name": "SignalLock-1.1.0-macos.app.zip.sha256",
+      "content_type": "application/octet-stream",
+      "state": "uploaded",
+      "size": 85,
+      "download_count": 0,
+      "browser_download_url": "https://github.com/muhammetsafak/signallock/releases/download/v1.1.0/SignalLock-1.1.0-macos.app.zip.sha256"
+    },
+    {
+      "url": "https://api.github.com/repos/muhammetsafak/signallock/releases/assets/1",
+      "id": 1,
+      "node_id": "RA_x",
+      "name": "SignalLock-1.1.0.dmg",
+      "content_type": "application/octet-stream",
+      "state": "uploaded",
+      "size": 13000000,
+      "download_count": 0,
+      "browser_download_url": "https://github.com/muhammetsafak/signallock/releases/download/v1.1.0/SignalLock-1.1.0.dmg"
+    },
+    {
+      "url": "https://api.github.com/repos/muhammetsafak/signallock/releases/assets/1",
+      "id": 1,
+      "node_id": "RA_x",
+      "name": "SignalLock-1.1.0-macos.dmg.sha256",
+      "content_type": "application/octet-stream",
+      "state": "uploaded",
+      "size": 80,
+      "download_count": 0,
+      "browser_download_url": "https://github.com/muhammetsafak/signallock/releases/download/v1.1.0/SignalLock-1.1.0-macos.dmg.sha256"
+    },
+    {
+      "url": "https://api.github.com/repos/muhammetsafak/signallock/releases/assets/1",
+      "id": 1,
+      "node_id": "RA_x",
+      "name": "SignalLock-1.1.0-setup.exe",
+      "content_type": "application/octet-stream",
+      "state": "uploaded",
+      "size": 9000000,
+      "download_count": 0,
+      "browser_download_url": "https://github.com/muhammetsafak/signallock/releases/download/v1.1.0/SignalLock-1.1.0-setup.exe"
+    },
+    {
+      "url": "https://api.github.com/repos/muhammetsafak/signallock/releases/assets/1",
+      "id": 1,
+      "node_id": "RA_x",
+      "name": "SignalLock-1.1.0-setup.exe.sha256",
+      "content_type": "application/octet-stream",
+      "state": "uploaded",
+      "size": 81,
+      "download_count": 0,
+      "browser_download_url": "https://github.com/muhammetsafak/signallock/releases/download/v1.1.0/SignalLock-1.1.0-setup.exe.sha256"
+    },
+    {
+      "url": "https://api.github.com/repos/muhammetsafak/signallock/releases/assets/1",
+      "id": 1,
+      "node_id": "RA_x",
+      "name": "SignalLock-1.1.0-x86_64.AppImage",
+      "content_type": "application/octet-stream",
+      "state": "uploaded",
+      "size": 20000000,
+      "download_count": 0,
+      "browser_download_url": "https://github.com/muhammetsafak/signallock/releases/download/v1.1.0/SignalLock-1.1.0-x86_64.AppImage"
+    },
+    {
+      "url": "https://api.github.com/repos/muhammetsafak/signallock/releases/assets/1",
+      "id": 1,
+      "node_id": "RA_x",
+      "name": "SignalLock-1.1.0-x86_64.AppImage.sha256",
+      "content_type": "application/octet-stream",
+      "state": "uploaded",
+      "size": 91,
+      "download_count": 0,
+      "browser_download_url": "https://github.com/muhammetsafak/signallock/releases/download/v1.1.0/SignalLock-1.1.0-x86_64.AppImage.sha256"
+    },
+    {
+      "url": "https://api.github.com/repos/muhammetsafak/signallock/releases/assets/1",
+      "id": 1,
+      "node_id": "RA_x",
+      "name": "SignalLock-1.1.0-aarch64.AppImage",
+      "content_type": "application/octet-stream",
+      "state": "uploaded",
+      "size": 20000000,
+      "download_count": 0,
+      "browser_download_url": "https://github.com/muhammetsafak/signallock/releases/download/v1.1.0/SignalLock-1.1.0-aarch64.AppImage"
+    },
+    {
+      "url": "https://api.github.com/repos/muhammetsafak/signallock/releases/assets/1",
+      "id": 1,
+      "node_id": "RA_x",
+      "name": "SignalLock-1.1.0-aarch64.AppImage.sha256",
+      "content_type": "application/octet-stream",
+      "state": "uploaded",
+      "size": 92,
+      "download_count": 0,
+      "browser_download_url": "https://github.com/muhammetsafak/signallock/releases/download/v1.1.0/SignalLock-1.1.0-aarch64.AppImage.sha256"
+    },
+    {
+      "url": "https://api.github.com/repos/muhammetsafak/signallock/releases/assets/1",
+      "id": 1,
+      "node_id": "RA_x",
+      "name": "signallock_1.1.0_amd64.deb",
+      "content_type": "application/octet-stream",
+      "state": "uploaded",
+      "size": 8000000,
+      "download_count": 0,
+      "browser_download_url": "https://github.com/muhammetsafak/signallock/releases/download/v1.1.0/signallock_1.1.0_amd64.deb"
+    },
+    {
+      "url": "https://api.github.com/repos/muhammetsafak/signallock/releases/assets/1",
+      "id": 1,
+      "node_id": "RA_x",
+      "name": "SignalLock-1.0.0-setup.exe",
+      "content_type": "application/octet-stream",
+      "state": "uploaded",
+      "size": 9000000,
+      "download_count": 0,
+      "browser_download_url": "https://github.com/muhammetsafak/signallock/releases/download/v1.1.0/SignalLock-1.0.0-setup.exe"
+    }
+  ],
+  "body": "Fixes the lock chain.\r\n\r\n- one\r\n- two\t(tab kept)\u0007\u0000"
+}

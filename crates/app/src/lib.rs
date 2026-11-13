@@ -11,3 +11,4 @@ pub mod logging;
 pub mod platform;
 pub mod tray;
 pub mod ui;
+pub mod update;

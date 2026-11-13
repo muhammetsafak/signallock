@@ -28,6 +28,13 @@ slint = "1.18.1"
 image = { version = "0.25.10", default-features = false, features = ["png"] }
 chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
 
+# In-app update (ADR-015). Network code lives only in src/update/. rustls with
+# bundled roots, no native-tls / OpenSSL; no gzip so that body caps count wire bytes.
+ureq = { version = "=3.5.1", default-features = false, features = ["rustls"] }
+semver = "=1.0.28"
+sha2 = "=0.11.0"
+hex = "=0.4.3"
+
 [build-dependencies]
 slint-build = "1.18.1"
 
