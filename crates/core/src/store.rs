@@ -187,31 +187,45 @@ fn write_atomic(dir: &Path, path: &Path, bytes: &[u8]) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Arc, Mutex};
     use tempfile::TempDir;
 
-    /// Runs `f` with a thread-local subscriber and returns the formatted log
-    /// lines it produced.
-    fn capture_logs(f: impl FnOnce()) -> String {
-        #[derive(Clone)]
-        struct Buf(Arc<Mutex<Vec<u8>>>);
-        impl Write for Buf {
-            fn write(&mut self, data: &[u8]) -> io::Result<usize> {
-                self.0.lock().unwrap().extend_from_slice(data);
-                Ok(data.len())
-            }
-            fn flush(&mut self) -> io::Result<()> {
-                Ok(())
-            }
+    thread_local! {
+        static CAPTURED: std::cell::RefCell<Vec<u8>> = const { std::cell::RefCell::new(Vec::new()) };
+    }
+
+    /// Writes each test thread's log output into that thread's own buffer.
+    struct ThreadBuf;
+    impl Write for ThreadBuf {
+        fn write(&mut self, data: &[u8]) -> io::Result<usize> {
+            CAPTURED.with(|b| b.borrow_mut().extend_from_slice(data));
+            Ok(data.len())
         }
-        let buf = Buf(Arc::new(Mutex::new(Vec::new())));
-        let writer = buf.clone();
-        let subscriber = tracing_subscriber::fmt()
-            .with_ansi(false)
-            .with_writer(move || writer.clone())
-            .finish();
-        tracing::subscriber::with_default(subscriber, f);
-        let bytes = buf.0.lock().unwrap().clone();
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// Runs `f` and returns the formatted log lines it produced on this thread.
+    ///
+    /// A scoped (`with_default`) subscriber is flaky under parallel tests:
+    /// `tracing` caches each callsite's interest globally, and another thread
+    /// hitting the same callsite with no subscriber can cache "never". A
+    /// process-wide subscriber, installed once, keeps every callsite enabled;
+    /// a thread-local buffer keeps each test's output separate.
+    fn capture_logs(f: impl FnOnce()) -> String {
+        static INIT: std::sync::Once = std::sync::Once::new();
+        INIT.call_once(|| {
+            let subscriber = tracing_subscriber::fmt()
+                .with_ansi(false)
+                .with_max_level(tracing::Level::TRACE)
+                .with_writer(|| ThreadBuf)
+                .finish();
+            tracing::subscriber::set_global_default(subscriber)
+                .expect("no other global subscriber in this test binary");
+        });
+        CAPTURED.with(|b| b.borrow_mut().clear());
+        f();
+        let bytes = CAPTURED.with(|b| std::mem::take(&mut *b.borrow_mut()));
         String::from_utf8(bytes).unwrap()
     }
 
