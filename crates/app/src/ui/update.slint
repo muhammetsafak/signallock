@@ -1,0 +1,225 @@
+// Update window (ADR-015). One window whose content follows the update state;
+// the Rust side (src/ui/mod.rs) maps `UpdateState` onto the properties below.
+// Release notes are plain text: `TextEdit` shows them verbatim, so HTML or
+// Markdown in a release body is never interpreted.
+
+import { Button, Palette, ProgressIndicator, Spinner, TextEdit } from "std-widgets.slint";
+
+export enum UpdateStage {
+    idle,
+    checking,
+    up-to-date,
+    available,
+    downloading,
+    verifying,
+    confirm,
+    installing,
+    restarting,
+    manual,
+    failed,
+}
+
+component Heading inherits Text {
+    font-size: 17px;
+    font-weight: 700;
+    color: Palette.foreground;
+    wrap: word-wrap;
+}
+
+component Body inherits Text {
+    color: Palette.foreground.with-alpha(0.7);
+    wrap: word-wrap;
+}
+
+// A spinner with a line of text, for the stages that only wait.
+component Waiting inherits HorizontalLayout {
+    in property <string> label;
+
+    alignment: start;
+    spacing: 12px;
+    Spinner {
+        indeterminate: true;
+        width: 20px;
+        height: 20px;
+        accessible-label: root.label;
+    }
+    Text {
+        text: root.label;
+        color: Palette.foreground;
+        vertical-alignment: center;
+    }
+}
+
+export component UpdateWindow inherits Window {
+    title: "SignalLock Update";
+    background: Palette.background;
+    preferred-width: 480px;
+    min-width: 420px;
+    // The height follows the stage: the short ones are fixed, the release notes
+    // can grow up to their preferred size.
+    min-height: content.min-height;
+    max-height: content.preferred-height;
+
+    in property <UpdateStage> stage: UpdateStage.idle;
+    // The running version, set once.
+    in property <string> current-version;
+    // The release on offer (available, downloading, confirm).
+    in property <string> version;
+    in property <string> notes;
+    // 0..1 while downloading; negative when the size is unknown.
+    in property <float> progress: -1;
+    in property <string> message;
+
+    // Every button maps to an AppState command in src/ui/mod.rs.
+    callback check-again();
+    callback download-install();
+    callback confirm-install();
+    callback open-page();
+    callback dismiss();
+
+    // `alignment: start` keeps the short stages packed at the top when the
+    // window is taller than they need; only the release notes stretch.
+    content := VerticalLayout {
+        padding: 20px;
+        spacing: 14px;
+        alignment: start;
+
+        if root.stage == UpdateStage.checking : Waiting {
+            label: "Checking for updates…";
+        }
+
+        if root.stage == UpdateStage.up-to-date : VerticalLayout {
+            spacing: 14px;
+            Heading { text: "SignalLock is up to date (" + root.current-version + ")"; }
+            HorizontalLayout {
+                alignment: end;
+                Button {
+                    text: "Close";
+                    primary: true;
+                    clicked => { root.dismiss(); }
+                }
+            }
+        }
+
+        if root.stage == UpdateStage.available : VerticalLayout {
+            spacing: 12px;
+            vertical-stretch: 1;
+            Heading { text: "Version " + root.version + " is available"; }
+            Body { text: "You have version " + root.current-version + "."; }
+            Text {
+                text: "Release notes";
+                font-weight: 700;
+                color: Palette.foreground;
+            }
+            TextEdit {
+                read-only: true;
+                wrap: word-wrap;
+                text: root.notes == "" ? "No release notes." : root.notes;
+                min-height: 140px;
+                preferred-height: 200px;
+                vertical-stretch: 1;
+                accessible-label: "Release notes";
+            }
+            HorizontalLayout {
+                alignment: end;
+                spacing: 8px;
+                Button {
+                    text: "Later";
+                    clicked => { root.dismiss(); }
+                }
+                Button {
+                    text: "Download & Install";
+                    primary: true;
+                    clicked => { root.download-install(); }
+                }
+            }
+        }
+
+        if root.stage == UpdateStage.downloading : VerticalLayout {
+            spacing: 12px;
+            Heading { text: "Downloading version " + root.version; }
+            ProgressIndicator {
+                progress: root.progress < 0 ? 0 : root.progress;
+                indeterminate: root.progress < 0;
+                accessible-label: "Download progress";
+            }
+            Body {
+                text: root.progress < 0 ? "Downloading…" : Math.round(root.progress * 100) + "%";
+            }
+        }
+
+        if root.stage == UpdateStage.verifying : Waiting {
+            label: "Verifying…";
+        }
+
+        if root.stage == UpdateStage.confirm : VerticalLayout {
+            spacing: 14px;
+            Heading { text: "Version " + root.version + " is ready to install"; }
+            Body { text: "SignalLock will quit and restart to finish the update."; }
+            Body { text: "Monitoring is paused until the new version has started."; }
+            HorizontalLayout {
+                alignment: end;
+                spacing: 8px;
+                Button {
+                    text: "Cancel";
+                    clicked => { root.dismiss(); }
+                }
+                Button {
+                    text: "Restart & Install";
+                    primary: true;
+                    clicked => { root.confirm-install(); }
+                }
+            }
+        }
+
+        if root.stage == UpdateStage.installing : Waiting {
+            label: "Installing…";
+        }
+
+        if root.stage == UpdateStage.restarting : Waiting {
+            label: "Restarting…";
+        }
+
+        if root.stage == UpdateStage.manual : VerticalLayout {
+            spacing: 14px;
+            Heading { text: "This copy of SignalLock cannot update itself"; }
+            Body { text: "Download the new version from the release page and install it yourself."; }
+            HorizontalLayout {
+                alignment: end;
+                spacing: 8px;
+                Button {
+                    text: "Close";
+                    clicked => { root.dismiss(); }
+                }
+                Button {
+                    text: "Open Download Page";
+                    primary: true;
+                    clicked => { root.open-page(); }
+                }
+            }
+        }
+
+        if root.stage == UpdateStage.failed : VerticalLayout {
+            spacing: 14px;
+            Heading { text: "The update did not finish"; }
+            Body { text: root.message; }
+            HorizontalLayout {
+                alignment: end;
+                spacing: 8px;
+                Button {
+                    text: "Close";
+                    clicked => { root.dismiss(); }
+                }
+                Button {
+                    text: "Open Download Page";
+                    clicked => { root.open-page(); }
+                }
+                Button {
+                    text: "Try Again";
+                    primary: true;
+                    clicked => { root.check-again(); }
+                }
+            }
+        }
+    }
+}

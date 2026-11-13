@@ -1,7 +1,7 @@
 //! Build script: compiles the Slint windows and, for Windows targets, embeds
 //! the exe icon, version info and the DPI-awareness manifest.
 //!
-//! The two Slint files are compiled separately (each one is its own entry
+//! The three Slint files are compiled separately (each one is its own entry
 //! point and is included by `src/ui/mod.rs` through its own generated module).
 
 fn main() {
@@ -9,6 +9,7 @@ fn main() {
     slint_build::compile("src/ui/settings.slint").expect("failed to compile settings.slint");
     slint_build::compile("src/ui/device_picker.slint")
         .expect("failed to compile device_picker.slint");
+    slint_build::compile("src/ui/update.slint").expect("failed to compile update.slint");
     embed_windows_resources();
 }
 

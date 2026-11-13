@@ -1,4 +1,4 @@
-//! The Settings and Device Picker windows (Slint) and their wiring to
+//! The Settings, Device Picker and Update windows (Slint) and their wiring to
 //! `AppState`.
 //!
 //! The `.slint` files hold the layout and every piece of visible copy (all
@@ -6,7 +6,7 @@
 //! windows' properties and turns their callbacks into `AppState` commands.
 //! Views never call services directly (`02-architecture-app.md`, data flow).
 //!
-//! Both windows are created on first use and then hidden and shown again, so
+//! The windows are created on first use and then hidden and shown again, so
 //! closing one never ends the app (the loop runs with
 //! `slint::run_event_loop_until_quit`; only the Quit menu item ends it).
 //! Everything here runs on the main thread.
@@ -20,7 +20,7 @@ use signallock_core::settings::{
 };
 use slint::{CloseRequestResponse, ComponentHandle, Model, ModelRc, SharedString, VecModel};
 
-use crate::app_state::{AppSnapshot, AppState, DiscoveredDevice, UiCommand};
+use crate::app_state::{AppSnapshot, AppState, DiscoveredDevice, UiCommand, UpdateState};
 use crate::ble::{BluetoothAvailability, DeviceId};
 use crate::logging;
 
@@ -31,8 +31,13 @@ mod picker_ui {
     include!(concat!(env!("OUT_DIR"), "/device_picker.rs"));
 }
 
+mod update_ui {
+    include!(concat!(env!("OUT_DIR"), "/update.rs"));
+}
+
 use picker_ui::{BluetoothStatus, DevicePickerWindow, DeviceRow};
 use settings_ui::SettingsWindow;
+use update_ui::{UpdateStage, UpdateWindow};
 
 /// What the picker list shows, comparable so an unchanged list is not
 /// pushed into the model again (the list refreshes once per second).
@@ -64,11 +69,77 @@ fn bluetooth_status(availability: BluetoothAvailability) -> BluetoothStatus {
     }
 }
 
-/// Owner of the two windows.
+/// What the update window shows for an [`UpdateState`]: its stage and the
+/// values that stage reads. Pure, so the mapping is unit-tested without a window.
+#[derive(Debug, Clone, PartialEq)]
+struct UpdateView {
+    stage: UpdateStage,
+    version: String,
+    notes: String,
+    /// 0..=1 while the size is known, negative otherwise.
+    progress: f32,
+    message: String,
+}
+
+fn update_view(state: &UpdateState) -> UpdateView {
+    let view = |stage| UpdateView {
+        stage,
+        version: String::new(),
+        notes: String::new(),
+        progress: -1.0,
+        message: String::new(),
+    };
+    match state {
+        UpdateState::Idle => view(UpdateStage::Idle),
+        UpdateState::Checking => view(UpdateStage::Checking),
+        UpdateState::UpToDate => view(UpdateStage::UpToDate),
+        UpdateState::Available { version, notes } => UpdateView {
+            version: version.clone(),
+            notes: notes.clone(),
+            ..view(UpdateStage::Available)
+        },
+        UpdateState::Downloading { progress } => UpdateView {
+            progress: progress
+                .total
+                .filter(|total| *total > 0)
+                .map_or(-1.0, |total| {
+                    (progress.downloaded.min(total) as f64 / total as f64) as f32
+                }),
+            ..view(UpdateStage::Downloading)
+        },
+        UpdateState::Verifying => view(UpdateStage::Verifying),
+        UpdateState::ConfirmInstall { version } => UpdateView {
+            version: version.clone(),
+            ..view(UpdateStage::Confirm)
+        },
+        UpdateState::Installing => view(UpdateStage::Installing),
+        UpdateState::RestartPending => view(UpdateStage::Restarting),
+        UpdateState::ManualRequired { .. } => view(UpdateStage::Manual),
+        UpdateState::Failed { message } => UpdateView {
+            message: message.clone(),
+            ..view(UpdateStage::Failed)
+        },
+    }
+}
+
+fn apply_update(window: &UpdateWindow, state: &UpdateState) {
+    let view = update_view(state);
+    window.set_stage(view.stage);
+    window.set_version(view.version.as_str().into());
+    window.set_notes(view.notes.as_str().into());
+    window.set_progress(view.progress);
+    window.set_message(view.message.as_str().into());
+}
+
+/// Owner of the three windows.
 pub struct Windows {
     app: Rc<AppState>,
     settings: RefCell<Option<Rc<SettingsWindow>>>,
     picker: RefCell<Option<Rc<DevicePickerWindow>>>,
+    update: RefCell<Option<Rc<UpdateWindow>>>,
+    /// The state last pushed into the update window; an unchanged state (the
+    /// once-per-second notifications) is not pushed again.
+    shown_update: RefCell<Option<UpdateState>>,
     rows: Rc<VecModel<DeviceRow>>,
     shown_rows: RefCell<Vec<RowKey>>,
 }
@@ -80,6 +151,8 @@ impl Windows {
             app: app.clone(),
             settings: RefCell::new(None),
             picker: RefCell::new(None),
+            update: RefCell::new(None),
+            shown_update: RefCell::new(None),
             rows: Rc::new(VecModel::default()),
             shown_rows: RefCell::new(Vec::new()),
         });
@@ -92,13 +165,15 @@ impl Windows {
         windows
     }
 
-    /// Performs a window command; `Quit` is not a window concern and is
-    /// ignored here.
+    /// Performs a window command; `Quit` and the single-instance guard
+    /// commands are not window concerns and are ignored here.
     pub fn handle(self: &Rc<Self>, command: UiCommand) {
         match command {
             UiCommand::OpenSettings => self.open_settings(),
             UiCommand::OpenPicker => self.open_picker(),
-            UiCommand::Quit => {}
+            UiCommand::OpenUpdate => self.open_update(),
+            UiCommand::Quit | UiCommand::ReleaseInstanceGuard | UiCommand::RestoreInstanceGuard => {
+            }
         }
     }
 
@@ -112,6 +187,90 @@ impl Windows {
         if let Some(window) = picker.filter(|w| w.window().is_visible()) {
             self.apply_picker(&window, snapshot);
         }
+        let update = self.update.borrow().clone();
+        // `Idle` is never drawn: it only exists while the window is being
+        // dismissed, and a blank frame would flash before it hides.
+        if let Some(window) = update
+            .filter(|w| w.window().is_visible())
+            .filter(|_| snapshot.update != UpdateState::Idle)
+        {
+            let mut shown = self.shown_update.borrow_mut();
+            if shown.as_ref() != Some(&snapshot.update) {
+                apply_update(&window, &snapshot.update);
+                *shown = Some(snapshot.update.clone());
+            }
+        }
+    }
+
+    // ----- Update -----
+
+    fn open_update(self: &Rc<Self>) {
+        let existing = self.update.borrow().clone();
+        let window = match existing {
+            Some(window) => window,
+            None => match self.build_update().map(Rc::new) {
+                Ok(window) => {
+                    *self.update.borrow_mut() = Some(window.clone());
+                    window
+                }
+                Err(e) => {
+                    tracing::error!(target: logging::APP, "Update window could not be created: {e}");
+                    return;
+                }
+            },
+        };
+        let state = self.app.snapshot().update;
+        apply_update(&window, &state);
+        *self.shown_update.borrow_mut() = Some(state);
+        show(&*window, "Update");
+    }
+
+    fn build_update(self: &Rc<Self>) -> Result<UpdateWindow, slint::PlatformError> {
+        let window = UpdateWindow::new()?;
+        window.set_current_version(env!("CARGO_PKG_VERSION").into());
+
+        window.on_check_again({
+            let app = self.app.clone();
+            move || app.check_for_updates()
+        });
+        // Both buttons run `install_update`: which step it is depends on the
+        // state (download, then the confirmed restart).
+        window.on_download_install({
+            let app = self.app.clone();
+            move || app.install_update()
+        });
+        window.on_confirm_install({
+            let app = self.app.clone();
+            move || app.install_update()
+        });
+        window.on_open_page({
+            let app = self.app.clone();
+            move || app.open_release_page()
+        });
+        // Hide first, then dismiss: the state change must not repaint a window
+        // that is on its way out.
+        window.on_dismiss({
+            let app = self.app.clone();
+            let weak = window.as_weak();
+            move || {
+                if let Some(window) = weak.upgrade() {
+                    hide(&window, "Update");
+                }
+                app.dismiss_update();
+            }
+        });
+        // The title-bar close button dismisses too (declining a confirmation
+        // deletes the downloaded file). While a job runs `dismiss_update` does
+        // nothing, the window just hides, and it comes back when the job ends
+        // in a state that waits for the user.
+        window.window().on_close_requested({
+            let app = self.app.clone();
+            move || {
+                app.dismiss_update();
+                CloseRequestResponse::HideWindow
+            }
+        });
+        Ok(window)
     }
 
     // ----- Settings -----
@@ -562,5 +721,68 @@ mod tests {
             bluetooth_status(A::Unknown),
             BluetoothStatus::Unknown
         ));
+    }
+
+    #[test]
+    fn every_update_state_maps_to_its_stage_and_values() {
+        use crate::update::DownloadProgress;
+
+        let view = |state: UpdateState| update_view(&state);
+        assert_eq!(view(UpdateState::Idle).stage, UpdateStage::Idle);
+        assert_eq!(view(UpdateState::Checking).stage, UpdateStage::Checking);
+        assert_eq!(view(UpdateState::UpToDate).stage, UpdateStage::UpToDate);
+        assert_eq!(view(UpdateState::Verifying).stage, UpdateStage::Verifying);
+        assert_eq!(view(UpdateState::Installing).stage, UpdateStage::Installing);
+        assert_eq!(
+            view(UpdateState::RestartPending).stage,
+            UpdateStage::Restarting
+        );
+
+        // Release notes pass through untouched: the window shows them as text.
+        let available = view(UpdateState::Available {
+            version: "1.1.0".into(),
+            notes: "<b>bold</b> **x**\nline two".into(),
+        });
+        assert_eq!(available.stage, UpdateStage::Available);
+        assert_eq!(available.version, "1.1.0");
+        assert_eq!(available.notes, "<b>bold</b> **x**\nline two");
+
+        let confirm = view(UpdateState::ConfirmInstall {
+            version: "1.1.0".into(),
+        });
+        assert_eq!(confirm.stage, UpdateStage::Confirm);
+        assert_eq!(confirm.version, "1.1.0");
+
+        let manual = view(UpdateState::ManualRequired {
+            url: "https://github.com/muhammetsafak/signallock/releases/".into(),
+        });
+        assert_eq!(manual.stage, UpdateStage::Manual);
+        assert!(manual.message.is_empty(), "the URL is never shown as text");
+
+        let failed = view(UpdateState::Failed {
+            message: "Could not reach GitHub: timed out".into(),
+        });
+        assert_eq!(failed.stage, UpdateStage::Failed);
+        assert_eq!(failed.message, "Could not reach GitHub: timed out");
+
+        let downloading = |downloaded, total| {
+            view(UpdateState::Downloading {
+                progress: DownloadProgress { downloaded, total },
+            })
+        };
+        assert_eq!(downloading(0, Some(200)).progress, 0.0);
+        assert_eq!(downloading(50, Some(200)).progress, 0.25);
+        assert_eq!(downloading(200, Some(200)).progress, 1.0);
+        assert_eq!(
+            downloading(250, Some(200)).progress,
+            1.0,
+            "never above 100 %"
+        );
+        assert!(
+            downloading(10, None).progress < 0.0,
+            "unknown size is indeterminate"
+        );
+        assert!(downloading(10, Some(0)).progress < 0.0);
+        assert_eq!(downloading(1, Some(2)).stage, UpdateStage::Downloading);
     }
 }

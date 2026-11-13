@@ -2,7 +2,8 @@
 //!
 //! Items, order, labels and enable rules match
 //! `macos/Sources/SignalLock/MenuBarController.swift` (Windows:
-//! `windows/UI/TrayController.cs`). The menu is derived from an
+//! `windows/UI/TrayController.cs`), plus *Check for Updates…* (ADR-015) after
+//! *Test Lock*. The menu is derived from an
 //! [`AppSnapshot`] by the pure function [`build_menu_model`]; [`Tray`] applies
 //! the model to the native menu, updating items in place when the layout is
 //! unchanged and rebuilding it when an item appears or disappears (the
@@ -37,6 +38,7 @@ pub enum MenuAction {
     SelectDevice,
     Settings,
     TestLock,
+    CheckForUpdates,
     Quit,
 }
 
@@ -49,17 +51,19 @@ impl MenuAction {
             Self::SelectDevice => "select-device",
             Self::Settings => "settings",
             Self::TestLock => "test-lock",
+            Self::CheckForUpdates => "check-for-updates",
             Self::Quit => "quit",
         }
     }
 
     pub fn from_id(id: &str) -> Option<Self> {
-        const ALL: [MenuAction; 6] = [
+        const ALL: [MenuAction; 7] = [
             MenuAction::StartMonitoring,
             MenuAction::PauseMonitoring,
             MenuAction::SelectDevice,
             MenuAction::Settings,
             MenuAction::TestLock,
+            MenuAction::CheckForUpdates,
             MenuAction::Quit,
         ];
         ALL.into_iter().find(|action| action.id() == id)
@@ -74,6 +78,7 @@ pub fn dispatch(action: MenuAction, app: &AppState) {
         MenuAction::SelectDevice => app.open_picker(),
         MenuAction::Settings => app.open_settings(),
         MenuAction::TestLock => app.test_lock(),
+        MenuAction::CheckForUpdates => app.check_for_updates(),
         MenuAction::Quit => app.quit(),
     }
 }
@@ -194,7 +199,7 @@ fn bluetooth_warning(availability: BluetoothAvailability) -> Option<&'static str
 
 /// The menu for `snapshot`, as of `now`. Pure, so it is unit-tested.
 pub fn build_menu_model(snapshot: &AppSnapshot, now: Instant) -> Vec<MenuEntry> {
-    let mut entries = Vec::with_capacity(14);
+    let mut entries = Vec::with_capacity(16);
 
     entries.push(MenuEntry::info("header", "SignalLock"));
     entries.push(MenuEntry::info("status", status_line(snapshot)));
@@ -258,6 +263,12 @@ pub fn build_menu_model(snapshot: &AppSnapshot, now: Instant) -> Vec<MenuEntry> 
         true,
     ));
     entries.push(MenuEntry::action(MenuAction::TestLock, "Test Lock", true));
+    // Disabled while a check, download, verification or install runs (ADR-015).
+    entries.push(MenuEntry::action(
+        MenuAction::CheckForUpdates,
+        "Check for Updates\u{2026}",
+        !snapshot.update.is_busy(),
+    ));
     entries.push(MenuEntry::separator());
     entries.push(MenuEntry::action(MenuAction::Quit, "Quit SignalLock", true));
 
@@ -451,6 +462,8 @@ pub fn install(app: &Rc<AppState>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app_state::UpdateState;
+    use crate::update::DownloadProgress;
     use signallock_core::{AppSettings, TrustedDevice};
     use std::time::Duration;
 
@@ -465,6 +478,7 @@ mod tests {
             trusted_device: None,
             settings: AppSettings::default(),
             discovered: Vec::new(),
+            update: UpdateState::Idle,
         }
     }
 
@@ -487,7 +501,7 @@ mod tests {
     }
 
     #[test]
-    fn paused_menu_without_a_device_matches_the_reference() {
+    fn paused_menu_without_a_device_matches_the_reference_plus_the_update_item() {
         let model = build_menu_model(&snapshot(), Instant::now());
         assert_eq!(
             texts(&model),
@@ -502,6 +516,7 @@ mod tests {
                 "Select Trusted Device\u{2026}",
                 "Settings\u{2026}",
                 "Test Lock",
+                "Check for Updates\u{2026}",
                 "",
                 "Quit SignalLock",
             ]
@@ -620,11 +635,72 @@ mod tests {
             MenuAction::SelectDevice,
             MenuAction::Settings,
             MenuAction::TestLock,
+            MenuAction::CheckForUpdates,
             MenuAction::Quit,
         ] {
             assert_eq!(MenuAction::from_id(action.id()), Some(action));
         }
         assert_eq!(MenuAction::from_id("nope"), None);
+    }
+
+    #[test]
+    fn check_for_updates_sits_between_settings_and_quit() {
+        let model = build_menu_model(&snapshot(), Instant::now());
+        let position = |action| model.iter().position(|e| e.slot == Slot::Action(action));
+        let check = position(MenuAction::CheckForUpdates).expect("item present");
+        assert!(position(MenuAction::Settings).unwrap() < check);
+        assert!(check < position(MenuAction::Quit).unwrap());
+        assert_eq!(model[check].text, "Check for Updates\u{2026}");
+    }
+
+    #[test]
+    fn check_for_updates_is_disabled_while_a_job_runs() {
+        let busy = [
+            UpdateState::Checking,
+            UpdateState::Downloading {
+                progress: DownloadProgress {
+                    downloaded: 10,
+                    total: Some(100),
+                },
+            },
+            UpdateState::Verifying,
+            UpdateState::Installing,
+            UpdateState::RestartPending,
+        ];
+        let idle = [
+            UpdateState::Idle,
+            UpdateState::UpToDate,
+            UpdateState::Available {
+                version: "1.1.0".into(),
+                notes: String::new(),
+            },
+            UpdateState::ConfirmInstall {
+                version: "1.1.0".into(),
+            },
+            UpdateState::ManualRequired {
+                url: "https://example.invalid/".into(),
+            },
+            UpdateState::Failed {
+                message: "x".into(),
+            },
+        ];
+        let mut s = snapshot();
+        for state in busy {
+            s.update = state.clone();
+            let model = build_menu_model(&s, Instant::now());
+            assert!(
+                !find(&model, MenuAction::CheckForUpdates).enabled,
+                "{state:?} must disable the item"
+            );
+        }
+        for state in idle {
+            s.update = state.clone();
+            let model = build_menu_model(&s, Instant::now());
+            assert!(
+                find(&model, MenuAction::CheckForUpdates).enabled,
+                "{state:?} must leave the item enabled"
+            );
+        }
     }
 
     #[test]
