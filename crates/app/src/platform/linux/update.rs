@@ -20,8 +20,8 @@ use semver::Version;
 use crate::logging;
 use crate::update::VerifiedPackage;
 use crate::update_service::{
-    CommandRunner, DryRunReport, InstallError, Installed, Result, describe_command,
-    dir_is_writable, io_error,
+    CommandRunner, DryRunReport, InstallError, Installed, LIGHT_COMMAND_TIMEOUT, Result,
+    describe_command, dir_is_writable, io_error,
 };
 
 /// Variables the AppImage runtime sets for the process it starts. The new
@@ -276,7 +276,7 @@ fn find_xdg_open(candidates: &[&str]) -> Option<PathBuf> {
         .map(Path::to_owned)
 }
 
-/// Opens `url` with `xdg-open`, not waiting for the browser. Inside an AppImage
+/// Opens `url` with `xdg-open`, waiting for it for at most 15 s. Inside an AppImage
 /// the bundled library path would break the system browser, so it is dropped.
 pub fn open_url(url: &str, runner: &dyn CommandRunner) -> Result<()> {
     open_url_with(
@@ -303,9 +303,25 @@ fn open_url_with(
     } else {
         &[]
     };
-    runner
-        .spawn_detached(&xdg_open, &[OsString::from(url)], remove)
-        .map_err(|e| InstallError::Command(format!("could not run xdg-open: {e}")))
+    // Waited for, with a bound: `xdg-open` hands the URL to the browser and
+    // returns; if it hangs it is killed after 15 s instead of living on.
+    let output = runner
+        .run(
+            &xdg_open,
+            &[OsString::from(url)],
+            LIGHT_COMMAND_TIMEOUT,
+            remove,
+        )
+        .map_err(|e| InstallError::Command(format!("could not run xdg-open: {e}")))?;
+    if output.success {
+        Ok(())
+    } else {
+        Err(InstallError::Command(format!(
+            "xdg-open {}: {}",
+            output.status,
+            output.stderr.trim()
+        )))
+    }
 }
 
 /// The steps [`install_at`] would take. `target` stands in for `$APPIMAGE`
@@ -397,7 +413,7 @@ fn dry_run_at(
 mod tests {
     use super::*;
     use crate::platform::test_util::TestDir;
-    use crate::update_service::test_support::FakeRunner;
+    use crate::update_service::test_support::{FakeRunner, RunRequest, failed};
 
     fn version() -> Version {
         Version::parse("1.1.0").unwrap()
@@ -795,16 +811,52 @@ mod tests {
         open_url_with(url, &runner, &[present_str], false).unwrap();
         open_url_with(url, &runner, &[present_str], true).unwrap();
         assert_eq!(
-            runner.spawns(),
+            runner.requests(),
             vec![
-                format!("{present_str} {url}"),
-                format!("{present_str} {url} [env removed: LD_LIBRARY_PATH]"),
+                RunRequest {
+                    line: format!("{present_str} {url}"),
+                    timeout: LIGHT_COMMAND_TIMEOUT,
+                    remove_env: vec![],
+                },
+                RunRequest {
+                    line: format!("{present_str} {url}"),
+                    timeout: LIGHT_COMMAND_TIMEOUT,
+                    remove_env: vec!["LD_LIBRARY_PATH".to_owned()],
+                },
             ]
         );
+        assert!(runner.spawns().is_empty(), "waited for, not detached");
         assert!(matches!(
             open_url_with(url, &runner, &["/nonexistent/xdg-open"], false),
             Err(InstallError::Command(_))
         ));
+    }
+
+    #[test]
+    fn an_xdg_open_that_hangs_or_fails_is_reported() {
+        let dir = TestDir::new("linux-xdg-fail");
+        let present = file_with(dir.path(), "xdg-open", b"#!/bin/sh");
+        let present_str = present.to_str().unwrap();
+        let url = "https://github.com/muhammetsafak/signallock/releases/";
+
+        let hung = FakeRunner::new(|_, _| {
+            Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "timed out after 15s and was killed",
+            ))
+        });
+        let err = open_url_with(url, &hung, &[present_str], false).expect_err("timeout");
+        assert!(
+            matches!(&err, InstallError::Command(m) if m.contains("timed out")),
+            "{err:?}"
+        );
+
+        let failing = FakeRunner::new(|_, _| Ok(failed("no method available")));
+        let err = open_url_with(url, &failing, &[present_str], false).expect_err("exit 1");
+        assert!(
+            matches!(&err, InstallError::Command(m) if m.contains("no method available")),
+            "{err:?}"
+        );
     }
 
     // ----- dry run -----

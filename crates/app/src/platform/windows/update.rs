@@ -456,6 +456,8 @@ mod tests {
                 &self,
                 _: &Path,
                 _: &[OsString],
+                _: std::time::Duration,
+                _: &[&str],
             ) -> io::Result<crate::update_service::CommandOutput> {
                 unreachable!("the installer is not waited for")
             }

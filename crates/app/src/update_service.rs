@@ -34,6 +34,7 @@ use std::io;
 use std::path::Path;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 
 use semver::Version;
 
@@ -133,8 +134,19 @@ pub struct CommandOutput {
 /// real one; tests pass a fake that records what was asked.
 pub trait CommandRunner {
     /// Runs `program args` to completion and captures its output. `program`
-    /// must be an absolute path.
-    fn run(&self, program: &Path, args: &[OsString]) -> io::Result<CommandOutput>;
+    /// must be an absolute path. `remove_env` names environment variables the
+    /// child must not inherit.
+    ///
+    /// The child gets at most `timeout`. When it is up, the child is killed and
+    /// reaped (`wait`) and the call fails with [`io::ErrorKind::TimedOut`]; a
+    /// helper that hangs never blocks the update flow (or the app) for good.
+    fn run(
+        &self,
+        program: &Path,
+        args: &[OsString],
+        timeout: Duration,
+        remove_env: &[&str],
+    ) -> io::Result<CommandOutput>;
 
     /// Starts `program args` and does not wait: the child outlives this
     /// process, with no inherited standard streams. `remove_env` names
@@ -147,9 +159,32 @@ pub trait CommandRunner {
     ) -> io::Result<()>;
 }
 
+/// Upper bound for the heavy helpers: `ditto` unpacking a bundle and `codesign`
+/// verifying it (`--deep` reads every file).
+pub const HEAVY_COMMAND_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// Upper bound for the light helpers: `plutil`, `open`, `xdg-open`. They hand
+/// work to the system and return at once.
+pub const LIGHT_COMMAND_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// How often a running helper is checked against its deadline.
+const POLL_INTERVAL: Duration = Duration::from_millis(10);
+
 /// The only code in this file that touches `std::process`.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SystemRunner;
+
+/// Drains a child's pipe on its own thread, so a helper that writes more than a
+/// pipe buffer holds cannot block on a full pipe while we wait for it to exit.
+fn drain<R: io::Read + Send + 'static>(pipe: Option<R>) -> std::thread::JoinHandle<Vec<u8>> {
+    std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        if let Some(mut pipe) = pipe {
+            let _ = pipe.read_to_end(&mut bytes);
+        }
+        bytes
+    })
+}
 
 fn require_absolute(program: &Path) -> io::Result<()> {
     if program.is_absolute() {
@@ -166,18 +201,62 @@ fn require_absolute(program: &Path) -> io::Result<()> {
 }
 
 impl CommandRunner for SystemRunner {
-    fn run(&self, program: &Path, args: &[OsString]) -> io::Result<CommandOutput> {
+    fn run(
+        &self,
+        program: &Path,
+        args: &[OsString],
+        timeout: Duration,
+        remove_env: &[&str],
+    ) -> io::Result<CommandOutput> {
         require_absolute(program)?;
-        let output = std::process::Command::new(program)
+        let mut command = std::process::Command::new(program);
+        command
             .args(args)
             .stdin(std::process::Stdio::null())
-            .output()?;
-        Ok(CommandOutput {
-            success: output.status.success(),
-            status: output.status.to_string(),
-            stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-        })
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+        for name in remove_env {
+            command.env_remove(name);
+        }
+        let mut child = command.spawn()?;
+        let stdout = drain(child.stdout.take());
+        let stderr = drain(child.stderr.take());
+
+        let deadline = Instant::now() + timeout;
+        let waited = loop {
+            match child.try_wait() {
+                Ok(Some(status)) => break Ok(status),
+                Ok(None) if Instant::now() >= deadline => break Err(None),
+                Ok(None) => std::thread::sleep(POLL_INTERVAL),
+                Err(e) => break Err(Some(e)),
+            }
+        };
+        match waited {
+            Ok(status) => {
+                // The child is gone, so its pipes reach end of file.
+                let stdout = stdout.join().unwrap_or_default();
+                let stderr = stderr.join().unwrap_or_default();
+                Ok(CommandOutput {
+                    success: status.success(),
+                    status: status.to_string(),
+                    stdout: String::from_utf8_lossy(&stdout).into_owned(),
+                    stderr: String::from_utf8_lossy(&stderr).into_owned(),
+                })
+            }
+            Err(failure) => {
+                // Kill, then `wait` so no zombie is left behind. The reader
+                // threads are not joined: a grandchild that inherited a pipe
+                // could keep it open, and they end by themselves at end of file.
+                let _ = child.kill();
+                let _ = child.wait();
+                Err(failure.unwrap_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::TimedOut,
+                        format!("timed out after {}s and was killed", timeout.as_secs()),
+                    )
+                }))
+            }
+        }
     }
 
     fn spawn_detached(
@@ -301,16 +380,23 @@ pub(crate) fn empty_dir(dir: &Path) -> usize {
 pub fn cleanup_stale_downloads() {
     match verify::updates_dir() {
         Ok(dir) => {
-            let left = empty_dir(&dir);
-            if left > 0 {
-                tracing::debug!(
-                    target: logging::APP,
-                    "{left} downloaded update file(s) are still in use; they are removed at the next launch"
-                );
-            }
+            cleanup_downloads_in(&dir);
         }
         Err(e) => tracing::debug!(target: logging::APP, "update cache cleanup skipped: {e}"),
     }
+}
+
+/// [`cleanup_stale_downloads`] for an explicit directory (the startup test uses
+/// a temporary one). Returns how many entries could not be removed.
+pub fn cleanup_downloads_in(dir: &Path) -> usize {
+    let left = empty_dir(dir);
+    if left > 0 {
+        tracing::debug!(
+            target: logging::APP,
+            "{left} downloaded update file(s) are still in use; they are removed at the next launch"
+        );
+    }
+    left
 }
 
 // ---------------------------------------------------------------------------
@@ -563,16 +649,27 @@ pub(crate) mod test_support {
     use std::io;
     use std::path::Path;
     use std::sync::Mutex;
+    use std::time::Duration;
 
     use super::{CommandOutput, CommandRunner};
 
     type Handler = dyn Fn(&Path, &[OsString]) -> io::Result<CommandOutput> + Send + Sync;
+
+    /// What a fake `run` was asked: the command line, its timeout and the
+    /// variables it was told to drop.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct RunRequest {
+        pub line: String,
+        pub timeout: Duration,
+        pub remove_env: Vec<String>,
+    }
 
     /// Records every request and answers `run` through a closure. `spawn_detached`
     /// is recorded only.
     pub struct FakeRunner {
         handler: Box<Handler>,
         pub calls: Mutex<Vec<String>>,
+        pub requests: Mutex<Vec<RunRequest>>,
         pub spawns: Mutex<Vec<String>>,
     }
 
@@ -583,6 +680,7 @@ pub(crate) mod test_support {
             Self {
                 handler: Box::new(handler),
                 calls: Mutex::new(Vec::new()),
+                requests: Mutex::new(Vec::new()),
                 spawns: Mutex::new(Vec::new()),
             }
         }
@@ -594,6 +692,10 @@ pub(crate) mod test_support {
 
         pub fn calls(&self) -> Vec<String> {
             self.calls.lock().unwrap().clone()
+        }
+
+        pub fn requests(&self) -> Vec<RunRequest> {
+            self.requests.lock().unwrap().clone()
         }
 
         pub fn spawns(&self) -> Vec<String> {
@@ -610,7 +712,6 @@ pub(crate) mod test_support {
         }
     }
 
-    #[cfg(target_os = "macos")]
     pub fn failed(stderr: &str) -> CommandOutput {
         CommandOutput {
             success: false,
@@ -621,11 +722,20 @@ pub(crate) mod test_support {
     }
 
     impl CommandRunner for FakeRunner {
-        fn run(&self, program: &Path, args: &[OsString]) -> io::Result<CommandOutput> {
-            self.calls
-                .lock()
-                .unwrap()
-                .push(super::describe_command(&program.to_string_lossy(), args));
+        fn run(
+            &self,
+            program: &Path,
+            args: &[OsString],
+            timeout: Duration,
+            remove_env: &[&str],
+        ) -> io::Result<CommandOutput> {
+            let line = super::describe_command(&program.to_string_lossy(), args);
+            self.calls.lock().unwrap().push(line.clone());
+            self.requests.lock().unwrap().push(RunRequest {
+                line,
+                timeout,
+                remove_env: remove_env.iter().map(|s| (*s).to_owned()).collect(),
+            });
             (self.handler)(program, args)
         }
 
@@ -752,13 +862,130 @@ mod tests {
     fn a_relative_program_path_is_refused_without_running_it() {
         let runner = SystemRunner;
         let err = runner
-            .run(Path::new("ditto"), &[])
+            .run(Path::new("ditto"), &[], LIGHT_COMMAND_TIMEOUT, &[])
             .expect_err("relative path");
         assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
         let err = runner
             .spawn_detached(Path::new("./installer"), &[], &[])
             .expect_err("relative path");
         assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+    }
+
+    // ----- real helper processes, with a deadline -----
+
+    #[cfg(unix)]
+    fn sh(script: &str) -> Vec<OsString> {
+        vec![OsString::from("-c"), OsString::from(script)]
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_finished_command_returns_its_output_and_status() {
+        let output = SystemRunner
+            .run(
+                Path::new("/bin/sh"),
+                &sh("echo out; echo err 1>&2; exit 3"),
+                LIGHT_COMMAND_TIMEOUT,
+                &[],
+            )
+            .unwrap();
+        assert!(!output.success);
+        assert_eq!(output.stdout, "out\n");
+        assert_eq!(output.stderr, "err\n");
+        assert!(output.status.contains('3'), "{}", output.status);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn output_larger_than_a_pipe_buffer_does_not_block_the_helper() {
+        let script = "i=0; while [ $i -lt 20000 ]; do echo xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx; i=$((i+1)); done";
+        let output = SystemRunner
+            .run(
+                Path::new("/bin/sh"),
+                &sh(script),
+                Duration::from_secs(60),
+                &[],
+            )
+            .unwrap();
+        assert!(output.success);
+        assert_eq!(output.stdout.len(), 20000 * 33);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn variables_named_in_remove_env_are_not_inherited() {
+        // HOME exists in every test environment; the child must not see it.
+        let output = SystemRunner
+            .run(
+                Path::new("/bin/sh"),
+                &sh("[ -z \"${HOME+set}\" ] && echo gone || echo present"),
+                LIGHT_COMMAND_TIMEOUT,
+                &["HOME"],
+            )
+            .unwrap();
+        assert_eq!(output.stdout.trim(), "gone");
+    }
+
+    /// `kill -0` (the shell builtin) succeeds for a live process and for a
+    /// zombie nobody waited for; only a reaped one gives "no such process".
+    #[cfg(unix)]
+    fn process_exists(pid: &str) -> bool {
+        std::process::Command::new("/bin/sh")
+            .args(["-c", &format!("kill -0 {pid} 2>/dev/null")])
+            .status()
+            .unwrap()
+            .success()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_hung_command_is_killed_reaped_and_reported_as_timed_out() {
+        let dir = TestDir::new("runner-timeout");
+        let pid_file = dir.path().join("pid");
+        let script = format!("echo $$ > '{}'; exec /bin/sleep 30", pid_file.display());
+        let started = Instant::now();
+        let err = SystemRunner
+            .run(
+                Path::new("/bin/sh"),
+                &sh(&script),
+                Duration::from_millis(400),
+                &[],
+            )
+            .expect_err("must time out");
+        assert!(started.elapsed() < Duration::from_secs(10), "returned late");
+        assert_eq!(err.kind(), io::ErrorKind::TimedOut);
+        assert!(err.to_string().contains("killed"), "{err}");
+        let pid = fs::read_to_string(&pid_file).unwrap();
+        assert!(
+            !process_exists(pid.trim()),
+            "the hung helper is still there"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_timeout_does_not_wait_for_a_grandchild_that_keeps_the_pipe_open() {
+        let started = Instant::now();
+        let err = SystemRunner
+            .run(
+                Path::new("/bin/sh"),
+                &sh("/bin/sleep 3 & wait"),
+                Duration::from_millis(300),
+                &[],
+            )
+            .expect_err("must time out");
+        assert_eq!(err.kind(), io::ErrorKind::TimedOut);
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "waited for the grandchild: {:?}",
+            started.elapsed()
+        );
+    }
+
+    #[test]
+    fn the_bounds_are_two_minutes_for_ditto_and_codesign_and_fifteen_seconds_for_the_rest() {
+        assert_eq!(HEAVY_COMMAND_TIMEOUT, Duration::from_secs(120));
+        assert_eq!(LIGHT_COMMAND_TIMEOUT, Duration::from_secs(15));
     }
 
     #[test]

@@ -16,14 +16,15 @@ use std::ffi::OsString;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use semver::Version;
 
 use crate::logging;
 use crate::update::VerifiedPackage;
 use crate::update_service::{
-    CommandOutput, CommandRunner, DryRunReport, InstallError, Installed, Result, describe_command,
-    dir_is_writable, io_error,
+    CommandOutput, CommandRunner, DryRunReport, HEAVY_COMMAND_TIMEOUT, InstallError, Installed,
+    LIGHT_COMMAND_TIMEOUT, Result, describe_command, dir_is_writable, io_error,
 };
 
 /// Apple Developer Team ID the release workflow signs with (ADR-015).
@@ -360,6 +361,15 @@ pub(crate) fn install_at(
     Ok(Installed::Ready(Relaunch { bundle }))
 }
 
+/// `ditto` unpacks and `codesign --deep` reads a whole bundle: two minutes.
+/// `plutil` and `open` return at once: fifteen seconds.
+fn timeout_for(program: &str) -> Duration {
+    match program {
+        DITTO | CODESIGN => HEAVY_COMMAND_TIMEOUT,
+        _ => LIGHT_COMMAND_TIMEOUT,
+    }
+}
+
 fn run_checked(
     runner: &dyn CommandRunner,
     program: &str,
@@ -367,7 +377,7 @@ fn run_checked(
     what: &str,
 ) -> Result<CommandOutput> {
     let output = runner
-        .run(Path::new(program), args)
+        .run(Path::new(program), args, timeout_for(program), &[])
         .map_err(|e| InstallError::Command(format!("could not {what} ({program}): {e}")))?;
     if output.success {
         Ok(output)
@@ -385,7 +395,12 @@ fn run_checked(
 /// folder and nothing was replaced.
 fn verify_new_bundle(runner: &dyn CommandRunner, app: &Path, expected: &Version) -> Result<()> {
     let verify = runner
-        .run(Path::new(CODESIGN), &codesign_verify_args(app))
+        .run(
+            Path::new(CODESIGN),
+            &codesign_verify_args(app),
+            timeout_for(CODESIGN),
+            &[],
+        )
         .map_err(|e| InstallError::Command(format!("could not run codesign: {e}")))?;
     if !verify.success {
         return Err(InstallError::Verification(format!(
@@ -1092,6 +1107,152 @@ Internal requirements count=1 size=180
         );
     }
 
+    // ----- command timeouts -----
+
+    #[test]
+    fn each_helper_gets_its_bound() {
+        let s = setup("install-bounds");
+        let runner = scripted(true, SAMPLE_DISPLAY, "1.1.0", false);
+        install_at(&s.exe, &s.package, &version(), 4242, &runner).unwrap();
+        let bounds: Vec<(String, Duration)> = runner
+            .requests()
+            .into_iter()
+            .map(|r| (r.line.split(' ').next().unwrap().to_owned(), r.timeout))
+            .collect();
+        assert_eq!(
+            bounds,
+            vec![
+                ("/usr/bin/ditto".to_owned(), HEAVY_COMMAND_TIMEOUT),
+                ("/usr/bin/codesign".to_owned(), HEAVY_COMMAND_TIMEOUT),
+                ("/usr/bin/codesign".to_owned(), HEAVY_COMMAND_TIMEOUT),
+                ("/usr/bin/plutil".to_owned(), LIGHT_COMMAND_TIMEOUT),
+            ]
+        );
+        let relaunch_runner = FakeRunner::succeeding();
+        relaunch(
+            Relaunch {
+                bundle: PathBuf::from("/Applications/SignalLock.app"),
+            },
+            &relaunch_runner,
+        )
+        .unwrap();
+        assert_eq!(relaunch_runner.requests()[0].timeout, LIGHT_COMMAND_TIMEOUT);
+        // The bound of a deferred Quit (`app_state::QUIT_DEFER_LIMIT`) is built
+        // from the worst case of this very sequence: a new install command, or
+        // a changed timeout, breaks this assert until `INSTALL_WORST_CASE` is
+        // updated with it.
+        let worst: Duration = bounds
+            .iter()
+            .map(|(_, timeout)| *timeout)
+            .chain(relaunch_runner.requests().iter().map(|r| r.timeout))
+            .sum();
+        assert_eq!(worst, crate::app_state::INSTALL_WORST_CASE);
+        assert!(crate::app_state::QUIT_DEFER_LIMIT > worst);
+        let open_runner = FakeRunner::succeeding();
+        open_url(
+            "https://github.com/muhammetsafak/signallock/releases/",
+            &open_runner,
+        )
+        .unwrap();
+        assert_eq!(open_runner.requests()[0].timeout, LIGHT_COMMAND_TIMEOUT);
+    }
+
+    /// A helper that times out fails the install before the swap: the installed
+    /// bundle is untouched, the staging folder is gone, and nothing is left aside.
+    fn assert_timeout_leaves_the_installed_app(which: &'static str, label: &str) {
+        let s = setup(label);
+        let runner = FakeRunner::new(move |program, args| {
+            let program = program.to_string_lossy();
+            let timed_out = || {
+                Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "timed out after 120s and was killed",
+                ))
+            };
+            match &*program {
+                "/usr/bin/ditto" if which == "ditto" => timed_out(),
+                "/usr/bin/ditto" => {
+                    fake_bundle(&PathBuf::from(&args[3]), "SignalLock.app", "new");
+                    Ok(ok(String::new(), String::new()))
+                }
+                "/usr/bin/codesign" if which == "codesign-verify" && args[0] == "--verify" => {
+                    timed_out()
+                }
+                "/usr/bin/codesign" if args[0] == "--verify" => {
+                    Ok(ok(String::new(), "valid on disk".to_owned()))
+                }
+                "/usr/bin/codesign" if which == "codesign-display" => timed_out(),
+                "/usr/bin/codesign" => Ok(ok(String::new(), SAMPLE_DISPLAY.to_owned())),
+                "/usr/bin/plutil" if which == "plutil" => timed_out(),
+                "/usr/bin/plutil" => Ok(ok("1.1.0\n".to_owned(), String::new())),
+                other => panic!("unexpected program {other}"),
+            }
+        });
+        let err = install_at(&s.exe, &s.package, &version(), 4242, &runner).expect_err(which);
+        let InstallError::Command(message) = &err else {
+            panic!("{which}: {err:?}");
+        };
+        assert!(message.contains("timed out"), "{which}: {message}");
+        assert_eq!(
+            marker(&s.dir.path().join("SignalLock.app")),
+            "old",
+            "{which}"
+        );
+        assert_eq!(
+            siblings(s.dir.path()),
+            vec!["SignalLock-1.1.0-macos.app.zip", "SignalLock.app"],
+            "{which}: no staging folder and no .old bundle"
+        );
+    }
+
+    #[test]
+    fn a_helper_that_times_out_stops_the_install_before_anything_is_replaced() {
+        for which in ["ditto", "codesign-verify", "codesign-display", "plutil"] {
+            assert_timeout_leaves_the_installed_app(which, &format!("install-timeout-{which}"));
+        }
+    }
+
+    #[test]
+    fn a_relaunch_that_times_out_is_reported() {
+        let runner = FakeRunner::new(|_, _| {
+            Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "timed out after 15s and was killed",
+            ))
+        });
+        let err = relaunch(
+            Relaunch {
+                bundle: PathBuf::from("/Applications/SignalLock.app"),
+            },
+            &runner,
+        )
+        .expect_err("timeout");
+        assert!(
+            matches!(&err, InstallError::Command(m) if m.contains("timed out")),
+            "{err:?}"
+        );
+    }
+
+    /// The rollback path is the rename pair, which no external command is part
+    /// of; a timeout in the middle of the swap cannot happen. What a hung helper
+    /// could never do is leave the old bundle moved aside, because every helper
+    /// runs before the first rename (checked above) and `open -n` after the last.
+    #[test]
+    fn the_swap_still_rolls_back_when_the_second_rename_fails() {
+        let dir = TestDir::new("swap-after-timeouts");
+        let current = fake_bundle(dir.path(), "SignalLock.app", "old");
+        let new = fake_bundle(&dir.path().join("stage"), "SignalLock.app", "new");
+        let old = dir.path().join("SignalLock.app.old-1");
+        let failing = |from: &Path, to: &Path| {
+            if from == new {
+                return Err(io::Error::other("simulated failure"));
+            }
+            fs::rename(from, to)
+        };
+        assert!(swap_bundle(&current, &new, &old, &failing).is_err());
+        assert_eq!(marker(&current), "old");
+    }
+
     // ----- the real tools, in a temp dir -----
 
     /// Runs the real `ditto`, `codesign` and `plutil` on an unsigned fake bundle
@@ -1120,6 +1281,8 @@ Internal requirements count=1 size=180
                     unsigned.clone().into_os_string(),
                     s.package.clone().into_os_string(),
                 ],
+                HEAVY_COMMAND_TIMEOUT,
+                &[],
             )
             .expect("ditto runs");
         assert!(zip_out.success, "{}", zip_out.stderr);
