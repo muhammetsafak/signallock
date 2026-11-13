@@ -43,6 +43,10 @@ use self::windows as sys;
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 pub(crate) use self::sys::lock as native;
 
+/// In-app update install logic of this platform, for `update_service.rs` only.
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+pub(crate) use self::sys::update as native_update;
+
 /// The platform's [`Autostart`] implementation.
 #[allow(unused_imports)]
 #[cfg(target_os = "linux")]

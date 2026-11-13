@@ -12,3 +12,4 @@ pub mod platform;
 pub mod tray;
 pub mod ui;
 pub mod update;
+pub mod update_service;

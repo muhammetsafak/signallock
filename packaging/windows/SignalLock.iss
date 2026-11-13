@@ -77,6 +77,12 @@ Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 [Run]
 ; Final-page checkbox (default checked, hidden in /SILENT mode).
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+; In-app update (ADR-015): the running app starts this installer with
+; /SILENT ... /SignalLockUpdate=1 and exits, so nothing else would start the
+; new version. This entry does, and only for that case: a plain silent install
+; (no /SignalLockUpdate=1) still does not launch the app. runasoriginaluser keeps
+; an all-users (elevated) install from starting the app elevated.
+Filename: "{app}\{#MyAppExeName}"; Flags: nowait runasoriginaluser; Check: IsUpdateInstall
 
 [UninstallRun]
 ; Remove the auto-start registry entry SignalLock may have written.
@@ -84,6 +90,12 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChang
 Filename: "{cmd}"; Parameters: "/c reg delete ""HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Run"" /v ""{#MyAppName}"" /f"; Flags: runhidden
 
 [Code]
+// True for the silent install the app itself starts to update itself (ADR-015).
+function IsUpdateInstall(): Boolean;
+begin
+  Result := WizardSilent and (ExpandConstant('{param:SignalLockUpdate|0}') = '1');
+end;
+
 function ConfirmDataDeletion(): Boolean;
 var
   Msg: string;

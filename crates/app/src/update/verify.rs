@@ -35,22 +35,33 @@ pub struct VerifiedPackage {
     path: PathBuf,
     version: Version,
     asset_name: String,
+    /// The SHA-256 the file had when it was verified. The installer hashes the
+    /// file again once it holds it open, so a swap in between is caught.
+    sha256: [u8; 32],
 }
 
 impl VerifiedPackage {
-    fn new(path: PathBuf, version: Version, asset_name: String) -> Self {
+    fn new(path: PathBuf, version: Version, asset_name: String, sha256: [u8; 32]) -> Self {
         Self {
             path,
             version,
             asset_name,
+            sha256,
         }
     }
 
     /// Test-only constructor for the installer's tests. Absent from release
     /// builds, so nothing outside a test can skip verification.
+    ///
+    /// The hash is that of the file's current content (all zeros when the file
+    /// cannot be read), so a test that leaves the file alone passes the
+    /// installer's second hash check and one that changes it does not.
     #[cfg(test)]
     pub(crate) fn for_test(path: PathBuf, version: Version, asset_name: &str) -> Self {
-        Self::new(path, version, asset_name.to_owned())
+        let sha256 = fs::read(&path)
+            .map(|bytes| Sha256::digest(&bytes).into())
+            .unwrap_or([0_u8; 32]);
+        Self::new(path, version, asset_name.to_owned(), sha256)
     }
 
     /// The verified file, inside the updates cache directory.
@@ -66,6 +77,12 @@ impl VerifiedPackage {
     /// The release asset name, e.g. `SignalLock-1.1.0-setup.exe`.
     pub fn asset_name(&self) -> &str {
         &self.asset_name
+    }
+
+    /// SHA-256 of the file as it was verified (equal to the one in the
+    /// release's `.sha256` file).
+    pub fn sha256(&self) -> &[u8; 32] {
+        &self.sha256
     }
 }
 
@@ -275,6 +292,7 @@ pub(super) fn verify_stream(
         final_path,
         spec.version.clone(),
         spec.asset_name.to_owned(),
+        actual,
     ))
 }
 
@@ -509,6 +527,7 @@ mod tests {
         .expect("verified");
         assert_eq!(package.asset_name(), NAME);
         assert_eq!(package.version(), &Version::new(1, 1, 0));
+        assert_eq!(package.sha256(), &digest(PACKAGE_SHA256));
         assert_eq!(package.path(), dir.path().join(NAME));
         assert_eq!(fs::read(package.path()).expect("read"), PACKAGE);
         assert_eq!(dir.entries(), [NAME], "no .part file may remain");
