@@ -1,0 +1,4 @@
+# Test fixtures are byte-exact copies of release artifacts (e.g. the `.sha256`
+# line `shasum` writes, ending in LF). Never convert their line endings on
+# checkout, or the Windows CI runner sees CRLF and the fixture tests fail.
+crates/app/tests/fixtures/** -text
