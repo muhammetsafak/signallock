@@ -4,6 +4,12 @@ name: CI
 # main, on every pull request (so a PR branch is not built twice) and as the
 # gate that release.yml calls before it builds any package. Nothing here reads
 # a secret; the release pipeline lives in release.yml.
+#
+# The workflow name must stay "CI" and the jobs `lint` and `test` must keep
+# their names: branch protection requires those two checks by job name.
+# `platforms` repeats clippy, the tests and the release build on macOS and
+# Windows, because most of crates/app is behind `#[cfg(target_os = ...)]`.
+# The commands are the ones in CONTRIBUTING.md; keep the two in step.
 
 on:
   push:
@@ -24,18 +30,13 @@ env:
   CARGO_INCREMENTAL: "0"
 
 jobs:
-  check:
-    name: build + test (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos-latest, windows-latest, ubuntu-22.04]
-    defaults:
-      run:
-        shell: bash
+  lint:
+    name: lint
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
+      - name: Check out repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
 
@@ -43,7 +44,6 @@ jobs:
       # tray-icon's ksni backend (pure Rust, D-Bus), so there is no GTK and no
       # libappindicator. Keep in step with scripts/build-appimage.sh.
       - name: Install Linux system packages
-        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -61,7 +61,94 @@ jobs:
           cargo --version
 
       - name: Cache cargo registry and build output
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: cargo-lint-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: |
+            cargo-lint-${{ runner.os }}-
+
+      - name: Lint
+        run: |
+          cargo fmt --all --check
+          cargo clippy --workspace --all-targets --locked -- -D warnings
+
+  test:
+    name: test
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      # Same package list as the lint job.
+      - name: Install Linux system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config file \
+            libdbus-1-dev libfontconfig1-dev \
+            libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libx11-dev libxcb1-dev \
+            libegl1-mesa-dev libgl1-mesa-dev
+
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustc --version
+          cargo --version
+
+      - name: Cache cargo registry and build output
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: cargo-test-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: |
+            cargo-test-${{ runner.os }}-
+
+      - name: Test
+        run: |
+          cargo test --workspace --locked
+
+      - name: cargo build --release
+        run: cargo build --release --locked
+
+  platforms:
+    name: clippy + test + build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt --component clippy
+          rustup default stable
+          rustc --version
+          cargo --version
+
+      - name: Cache cargo registry and build output
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
             ~/.cargo/registry/index
@@ -71,9 +158,6 @@ jobs:
           key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
           restore-keys: |
             cargo-${{ runner.os }}-
-
-      - name: cargo fmt --check
-        run: cargo fmt --all --check
 
       - name: cargo clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings

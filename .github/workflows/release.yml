@@ -15,7 +15,7 @@ name: Release
 # link to releases/latest/download (user decision, 2026-11-12).
 #
 #   Cut a release:  bump workspace.package.version in Cargo.toml, commit,
-#                   then `git tag vX.Y.Z && git push origin vX.Y.Z`. The job fails
+#                   then `git tag -a vX.Y.Z -m vX.Y.Z && git push origin vX.Y.Z`. The job fails
 #                   when the tag and the workspace version disagree.
 #   Re-run without publishing: Actions tab -> Release -> "Run workflow", choosing
 #                   an existing `v*` tag in "Use workflow from" (the `release`
@@ -56,7 +56,7 @@ name: Release
 
 on:
   push:
-    tags: ["v*"]
+    tags: ["v*.*.*"]
   workflow_dispatch:
 
 permissions:
@@ -82,6 +82,7 @@ jobs:
   # a release whose files would say one version and whose tag another.
   verify-version:
     runs-on: ubuntu-22.04
+    timeout-minutes: 5
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
@@ -112,6 +113,7 @@ jobs:
   build-macos:
     needs: [verify-version, ci]
     runs-on: macos-latest
+    timeout-minutes: 45
     outputs:
       app_sha256: ${{ steps.pack.outputs.sha256 }}
     steps:
@@ -154,6 +156,8 @@ jobs:
   sign-macos:
     needs: [verify-version, build-macos]
     runs-on: macos-latest
+    # Two `notarytool submit --wait` calls (app and dmg) run in this job.
+    timeout-minutes: 90
     environment: release
     outputs:
       package_sha256: ${{ steps.package-hash.outputs.sha256 }}
@@ -369,6 +373,7 @@ jobs:
   windows:
     needs: [verify-version, ci]
     runs-on: windows-latest
+    timeout-minutes: 45
     outputs:
       package_sha256: ${{ steps.checksum.outputs.sha256 }}
     env:
@@ -437,6 +442,7 @@ jobs:
   linux:
     needs: [verify-version, ci]
     runs-on: ubuntu-22.04
+    timeout-minutes: 45
     outputs:
       package_sha256: ${{ steps.package-hash.outputs.sha256 }}
     env:
@@ -504,6 +510,7 @@ jobs:
     if: github.event_name == 'push' && github.ref_type == 'tag'
     needs: [verify-version, sign-macos, windows, linux]
     runs-on: ubuntu-22.04
+    timeout-minutes: 15
     permissions:
       contents: write
     env:

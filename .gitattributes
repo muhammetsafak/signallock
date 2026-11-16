@@ -1,4 +1,16 @@
+# Normalize line endings to LF for all text files
+* text=auto eol=lf
+
+# Binary files
+*.png    binary
+*.ico    binary
+*.icns   binary
+
+# Generated files (collapsed in diffs, excluded from language stats)
+Cargo.lock         linguist-generated
+
 # Test fixtures are byte-exact copies of release artifacts (e.g. the `.sha256`
 # line `shasum` writes, ending in LF). Never convert their line endings on
 # checkout, or the Windows CI runner sees CRLF and the fixture tests fail.
+# Keep this rule last: it must override `* text=auto eol=lf` above.
 crates/app/tests/fixtures/** -text
