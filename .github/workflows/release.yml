@@ -143,7 +143,7 @@ jobs:
           echo "Bundle archive SHA-256: ${sha256}"
           echo "sha256=${sha256}" >> "${GITHUB_OUTPUT}"
 
-      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: macos-app-unsigned
           path: bundle/SignalLock.app.zip
@@ -360,7 +360,7 @@ jobs:
           fi
           rm -f "${RUNNER_TEMP}/certificate.p12"
 
-      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: macos-package
           path: |
@@ -431,7 +431,7 @@ jobs:
           Get-Content "dist\$name.sha256"
           "sha256=$hash" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
-      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: windows-package
           path: |
@@ -496,7 +496,7 @@ jobs:
           echo "AppImage SHA-256: ${sha256}"
           echo "sha256=${sha256}" >> "${GITHUB_OUTPUT}"
 
-      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: linux-package
           path: |
