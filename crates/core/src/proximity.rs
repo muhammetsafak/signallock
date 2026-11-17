@@ -1,17 +1,17 @@
 //! Proximity decision engine (ADR-005, ADR-010, ADR-014).
 //!
-//! `ProximityMonitor` is a direct port of `macos/Sources/SignalLock/ProximityMonitor.swift`
-//! and `windows/Services/ProximityMonitor.cs`. It keeps a moving-average RSSI
+//! `ProximityMonitor` is a direct port of the 0.1.0 macOS (Swift) and Windows
+//! (C#) proximity monitors. It keeps a moving-average RSSI
 //! buffer and a last-seen timestamp and emits exactly one [`Decision::Lock`]
 //! per "away episode". Time is injected: callers pass `Instant`s into
 //! [`ProximityMonitor::on_sample`] and [`ProximityMonitor::tick`]; this module
 //! never reads the clock. The owner calls `tick` about once per second, like
-//! the 1 s timer of the references.
+//! the 1 s timer of the 0.1.0 apps.
 //!
 //! ## Rounding (deliberate deviation, user decision 2026-11-12, ADR-014)
 //!
 //! The smoothed RSSI is the window average rounded to the nearest integer,
-//! halves away from zero (`f64::round`, e.g. -80.5 becomes -81). The references
+//! halves away from zero (`f64::round`, e.g. -80.5 becomes -81). The 0.1.0 apps
 //! differ from each other and from this: Swift truncates toward zero
 //! (`sum / count`, so -80.5 becomes -80) and C# uses `Math.Round` (halves to
 //! even, so -80.5 becomes -80 and -79.5 becomes -80). The difference is at most
@@ -78,7 +78,7 @@ pub struct ProximityMonitor {
 }
 
 impl ProximityMonitor {
-    /// Creates an armed monitor (the equivalent of the references' `start()`).
+    /// Creates an armed monitor (the equivalent of the 0.1.0 apps' `start()`).
     pub fn new(settings: AppSettings) -> Self {
         Self {
             settings,
@@ -141,7 +141,7 @@ impl ProximityMonitor {
     /// Returns `Some(Decision::Lock)` at most once per away episode.
     pub fn tick(&mut self, now: Instant) -> Option<Decision> {
         // Buffer aging (ADR-010 guard 2): runs before the presence gate, as in
-        // both references.
+        // both 0.1.0 apps.
         if let Some(last) = self.last_seen
             && now.saturating_duration_since(last) > BUFFER_STALE_AFTER
         {
@@ -216,7 +216,7 @@ impl ProximityMonitor {
     }
 
     /// `true` once the away delay elapsed for the current episode (the
-    /// references' `isAway`).
+    /// 0.1.0 apps' `isAway`).
     pub fn is_away(&self) -> bool {
         self.is_away
     }

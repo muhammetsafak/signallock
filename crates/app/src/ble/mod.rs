@@ -25,12 +25,12 @@ pub use id::{DeviceId, ParseDeviceIdError};
 use tokio::sync::mpsc;
 
 /// What the picker shows for a peripheral that advertises no name
-/// (`"Unknown Device"` in both references).
+/// (`"Unknown Device"` in both 0.1.0 apps).
 pub const UNKNOWN_DEVICE_NAME: &str = "Unknown Device";
 
 /// State of the Bluetooth adapter, as the menu and the settings UI need it.
 ///
-/// Mirrors `BluetoothAvailability` in both references (`ready` is called
+/// Mirrors `BluetoothAvailability` in both 0.1.0 apps (`ready` is called
 /// `PoweredOn` here). What a platform can report differs: CoreBluetooth and
 /// BlueZ never say `Unauthorized` through btleplug once an adapter exists, and
 /// Windows reports a disabled radio as `Unknown`; see `btleplug_scanner.rs`.

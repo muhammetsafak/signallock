@@ -1,9 +1,9 @@
 //! `tracing` subscriber: stdout plus `signallock.log` in the config dir.
 //!
-//! Log categories are `tracing` targets and match the references
-//! (`Logging.swift`, `Logging.cs`): `app`, `lock`, `proximity`, `bluetooth`.
-//! The file is opened in append mode and never rotated, like the Windows
-//! reference; the user rolls it by deleting it. Logging must never crash the
+//! Log categories are `tracing` targets and match the 0.1.0
+//! apps: `app`, `lock`, `proximity`, `bluetooth`.
+//! The file is opened in append mode and never rotated, like the 0.1.0
+//! Windows app; the user rolls it by deleting it. Logging must never crash the
 //! app, so a failing file sink degrades to stdout only.
 
 use std::path::Path;

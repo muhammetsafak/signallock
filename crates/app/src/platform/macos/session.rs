@@ -1,6 +1,6 @@
 //! Screen lock and unlock notifications. `com.apple.screenIsLocked` and
 //! `com.apple.screenIsUnlocked` are posted on the distributed notification
-//! center, as `AppState.swift` observes them.
+//! center.
 
 use std::sync::OnceLock;
 

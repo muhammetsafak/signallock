@@ -1,8 +1,8 @@
 //! Login autostart through `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
-//! Per-user, no admin rights. Mirrors `windows/Services/LoginItemService.cs`.
+//! Per-user, no admin rights. Same key and value as the 0.1.0 app.
 //!
 //! The value name must stay `SignalLock`: the installer's uninstall step
-//! deletes exactly that value (`windows/installer/SignalLock.iss`,
+//! deletes exactly that value (`packaging/windows/SignalLock.iss`,
 //! `[UninstallRun]`).
 
 use std::path::Path;
@@ -98,11 +98,11 @@ mod tests {
         assert_eq!(value, "\"C:\\Program Files\\SignalLock\\signallock.exe\"");
     }
 
-    /// Pins the literal only. The installer that deletes this value lives in
-    /// the `macos`/`windows` repository (`windows/installer/SignalLock.iss`,
-    /// `[UninstallRun]` runs `reg delete ... /v SignalLock`), out of reach of a
-    /// test in this repository: changing the name here means changing the
-    /// installer too, and this test failing is the reminder.
+    /// Pins the literal only. The installer script that deletes this value
+    /// (`packaging/windows/SignalLock.iss`, `[UninstallRun]` runs
+    /// `reg delete ... /v SignalLock`) is out of reach of a Rust test:
+    /// changing the name here means changing the installer too, and this test
+    /// failing is the reminder.
     #[test]
     fn value_name_is_pinned_to_the_one_the_installer_removes() {
         assert_eq!(VALUE_NAME, "SignalLock");

@@ -100,7 +100,7 @@ mod tests {
     use crate::platform::test_util::TestDir;
 
     /// `JsonSerializer.Serialize(settings, new() { WriteIndented = true })`
-    /// output of `windows/Services/SettingsStore.cs`.
+    /// output of the 0.1.0 Windows app.
     const WINDOWS_SETTINGS: &str = "{\r\n  \"RssiThreshold\": -65,\r\n  \"AwayDelaySeconds\": 30,\r\n  \"RssiSmoothingWindow\": 7,\r\n  \"MonitoringEnabled\": true,\r\n  \"StartAtLogin\": true\r\n}";
 
     const WINDOWS_DEVICE: &str =

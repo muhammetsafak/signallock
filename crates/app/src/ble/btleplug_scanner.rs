@@ -5,10 +5,9 @@
 //! calls them) and the scanner is usable without awaiting anything. The actor
 //! turns commands and btleplug events into [`BleEvent`]s.
 //!
-//! # Behaviour copied from the references
+//! # Behaviour carried over from the 0.1.0 apps
 //!
-//! `macos/Sources/SignalLock/BluetoothDeviceScanner.swift` and
-//! `windows/Services/BluetoothScanner.cs`:
+//! The 0.1.0 macOS and Windows scanners behaved the same way:
 //!
 //! - Scan for every peripheral (`ScanFilter::default()`); in monitoring mode
 //!   the events of the trusted device are the only ones forwarded.
@@ -57,8 +56,8 @@
 //! Adapter availability: btleplug reports `PoweredOn`, `PoweredOff` and
 //! `Unknown` only. `Unauthorized` is reported when the adapter cannot be opened
 //! because the OS denied access (macOS `PermissionDenied`), `Unsupported` when
-//! there is no adapter. A Windows radio in the `Disabled` state, which the C#
-//! reference maps to `Unauthorized`, shows up here as `Unknown`.
+//! there is no adapter. A Windows radio in the `Disabled` state, which the 0.1.0
+//! Windows app mapped to `Unauthorized`, shows up here as `Unknown`.
 
 use std::collections::HashMap;
 use std::future::pending;
@@ -266,7 +265,7 @@ fn availability_from_state(state: &CentralState) -> BluetoothAvailability {
     }
 }
 
-/// How an adapter-open failure is reported (Windows reference: no adapter is
+/// How an adapter-open failure is reported (0.1.0 Windows app: no adapter is
 /// `Unsupported`, any other failure `Unknown`).
 fn availability_from_error(error: &btleplug::Error) -> BluetoothAvailability {
     match error {
@@ -403,7 +402,7 @@ async fn run(mut commands: mpsc::UnboundedReceiver<Command>, events: mpsc::Sende
         closed: false,
     };
 
-    // Open the adapter right away, like the macOS reference creates its
+    // Open the adapter right away, like the 0.1.0 macOS app created its
     // `CBCentralManager` in `init`: the permission prompt and the first
     // `AdapterState` should not wait for the first scan request.
     actor.ensure_adapter().await;
@@ -447,7 +446,7 @@ impl Actor {
     }
 
     async fn start(&mut self, mode: Mode) {
-        // Like the Windows reference, which refreshes the availability on every
+        // Like the 0.1.0 Windows app, which refreshed the availability on every
         // start: a failed or lost adapter is reopened here. The mode is set
         // first, so a reopen that finds the adapter powered on starts the scan
         // for the new mode itself and no second start follows.

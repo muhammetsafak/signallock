@@ -1,5 +1,5 @@
-//! `LockWorkStation` (user32), the only Windows strategy; the C# app has no
-//! fallback either (`windows/Services/LockService.cs`).
+//! `LockWorkStation` (user32), the only Windows strategy; the 0.1.0 app had no
+//! fallback either.
 
 use ::windows::Win32::System::Shutdown::LockWorkStation;
 

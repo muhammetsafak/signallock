@@ -1,8 +1,8 @@
 //! Session lock/unlock notifications through `WTSRegisterSessionNotification`.
 //!
 //! A hidden message-only window receives `WM_WTSSESSION_CHANGE` on a
-//! dedicated thread that runs the message loop. This replaces the C# app's
-//! `SystemEvents.SessionSwitch` (`windows/AppState.cs`).
+//! dedicated thread that runs the message loop. This replaces the 0.1.0
+//! app's `SystemEvents.SessionSwitch`.
 //!
 //! The window is a built-in `STATIC` control that is subclassed, because
 //! registering a window class needs `Win32_Graphics_Gdi`, a `windows` crate

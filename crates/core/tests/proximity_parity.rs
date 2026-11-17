@@ -1,5 +1,5 @@
-//! Behaviour parity with `macos/Sources/SignalLock/ProximityMonitor.swift` and
-//! `windows/Services/ProximityMonitor.cs`, with injected time. Every test
+//! Behaviour parity with the 0.1.0 macOS and Windows proximity monitors, with
+//! injected time. Every test
 //! builds a `Sim` whose clock is a plain offset from one fixed `Instant`, so
 //! nothing depends on wall-clock time.
 //!
@@ -444,7 +444,7 @@ fn away_delay_setting_is_respected() {
 
 #[test]
 fn zero_window_setting_behaves_as_one() {
-    // The references clamp the window with max(1, ...) when ingesting.
+    // The 0.1.0 apps clamp the window with max(1, ...) when ingesting.
     let mut sim = Sim::with_window(0);
     sim.sample(0, -60);
     sim.sample(100, -70);

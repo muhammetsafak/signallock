@@ -102,11 +102,11 @@ mod tests {
     use super::*;
     use crate::platform::test_util::TestDir;
 
-    /// `JSONEncoder().encode(AppSettings)` output of
-    /// `macos/Sources/SignalLock/SettingsStore.swift` (camelCase keys).
+    /// `JSONEncoder().encode(AppSettings)` output of the 0.1.0 macOS app
+    /// (camelCase keys).
     const SWIFT_SETTINGS: &str = r#"{"rssiThreshold":-72,"awayDelaySeconds":45,"monitoringEnabled":true,"startAtLogin":true,"rssiSmoothingWindow":8}"#;
 
-    /// `JSONEncoder().encode(TrustedDevice)` output of `TrustedDeviceStore.swift`.
+    /// `JSONEncoder().encode(TrustedDevice)` output of the 0.1.0 macOS app.
     const SWIFT_DEVICE: &str =
         r#"{"identifier":"7F1B2C3D-4E5F-6071-8293-A4B5C6D7E8F9","name":"Muhammet's iPhone"}"#;
 

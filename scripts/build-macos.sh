@@ -4,8 +4,7 @@
 #
 # Usage: ./scripts/build-macos.sh
 #
-# Signing (same path as the legacy macos/build-app.sh and
-# .ssot/08-signing-identity.md):
+# Signing:
 #   APPLE_DEV_ID   "Developer ID Application: Name (TEAMID)" (or the SHA-1 of
 #                  that certificate). When set, the bundle is signed with the
 #                  hardened runtime and a secure timestamp. When unset, the

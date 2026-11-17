@@ -55,8 +55,8 @@ impl DeviceId {
         Self(id)
     }
 
-    /// Bluetooth address packed into an integer, as the Windows reference
-    /// does (`ulong`). `None` when the value does not fit in 48 bits.
+    /// Bluetooth address packed into an integer, as the 0.1.0 Windows
+    /// app did (`ulong`). `None` when the value does not fit in 48 bits.
     pub fn from_address(address: u64) -> Option<Self> {
         if address > MAX_ADDRESS {
             return None;
@@ -78,8 +78,8 @@ impl DeviceId {
         }
     }
 
-    /// `Some` when this is a Bluetooth address identity (the Windows
-    /// reference's `TryParseAddress`).
+    /// `Some` when this is a Bluetooth address identity (the 0.1.0
+    /// Windows app's `TryParseAddress`).
     pub fn to_address(&self) -> Option<u64> {
         if self.0.len() == 12 {
             u64::from_str_radix(&self.0, 16).ok()
@@ -149,7 +149,7 @@ fn is_pair_separated(s: &str) -> bool {
 mod tests {
     use super::*;
 
-    // A CoreBluetooth identifier as the Swift app persists it.
+    // A CoreBluetooth identifier as the 0.1.0 macOS app persisted it.
     const MACOS_ID: &str = "E621E1F8-C36C-495A-93FC-0C247A3E6E5F";
 
     #[test]

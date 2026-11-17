@@ -495,7 +495,7 @@ fn install_panic_hook() {
     }));
 }
 
-/// Single-instance guard. Windows: the named mutex of `windows/Program.cs`.
+/// Single-instance guard. Windows: the same named mutex the 0.1.0 app used.
 /// macOS and Linux: an exclusive `File::try_lock` on a lock file in the config
 /// directory. The guard is held for the life of the process.
 mod instance {

@@ -1,8 +1,7 @@
 //! Tray icon and menu (`tray-icon`, `muda`).
 //!
-//! Items, order, labels and enable rules match
-//! `macos/Sources/SignalLock/MenuBarController.swift` (Windows:
-//! `windows/UI/TrayController.cs`), plus *Check for Updates…* (ADR-015) after
+//! Items, order, labels and enable rules match the 0.1.0 macOS and Windows
+//! menus, plus *Check for Updates…* (ADR-015) after
 //! *Test Lock*. The menu is derived from an
 //! [`AppSnapshot`] by the pure function [`build_menu_model`]; [`Tray`] applies
 //! the model to the native menu, updating items in place when the layout is
@@ -275,7 +274,7 @@ pub fn build_menu_model(snapshot: &AppSnapshot, now: Instant) -> Vec<MenuEntry> 
     entries
 }
 
-/// Hover text (Windows and Linux; the macOS reference has none): `SignalLock — Monitoring · Device · -62 dBm`, cut to the
+/// Hover text (Windows and Linux; the 0.1.0 macOS app had none): `SignalLock — Monitoring · Device · -62 dBm`, cut to the
 /// tooltip limit.
 pub fn tooltip_text(snapshot: &AppSnapshot) -> String {
     let state = if snapshot.monitoring {
@@ -310,7 +309,7 @@ impl NativeItem {
     }
 }
 
-/// The macOS key equivalents of the reference menu (Settings: Cmd+, ; Quit:
+/// The macOS key equivalents of the 0.1.0 menu (Settings: Cmd+, ; Quit:
 /// Cmd+Q). Windows and Linux menus show none.
 #[cfg(target_os = "macos")]
 fn accelerator_for(action: MenuAction) -> Option<muda::accelerator::Accelerator> {
@@ -343,7 +342,7 @@ impl Tray {
     fn new() -> Result<Self, String> {
         let menu = Menu::new();
         let builder = TrayIconBuilder::new().with_menu(Box::new(menu.clone()));
-        // The macOS reference has no tooltip; Windows has one (`TrayController.cs`).
+        // The 0.1.0 macOS app had no tooltip; the Windows one did.
         #[cfg(not(target_os = "macos"))]
         let builder = builder.with_tooltip("SignalLock");
         #[cfg(target_os = "macos")]

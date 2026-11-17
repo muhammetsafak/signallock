@@ -1,5 +1,5 @@
-//! Login item through `SMAppService.mainApp` (macOS 13+). Mirrors
-//! `LoginItemService.swift`. Registration only works from the signed `.app`
+//! Login item through `SMAppService.mainApp` (macOS 13+), as in the 0.1.0
+//! app. Registration only works from the signed `.app`
 //! bundle; from a bare `cargo run` binary `register` fails and is reported as
 //! an error.
 

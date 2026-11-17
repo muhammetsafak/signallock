@@ -1,5 +1,5 @@
 ﻿; SignalLock — Inno Setup installer script (Rust app, ADR-014).
-; Adapted from the legacy windows/installer/SignalLock.iss.
+; Adapted from the 0.1.0 Windows installer script.
 ;
 ; Build (from the app/ directory, after `cargo build --release`):
 ;   iscc /DMyAppVersion=<workspace version> packaging\windows\SignalLock.iss

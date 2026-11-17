@@ -9,8 +9,8 @@ use std::ffi::{CStr, CString};
 use super::super::{PlatformError, Result};
 use crate::logging;
 
-/// Candidate paths for the private `login` binary, in `LockService.swift`
-/// order. macOS ships these inside the dyld shared cache rather than as
+/// Candidate paths for the private `login` binary, in the order the 0.1.0
+/// app tried them. macOS ships these inside the dyld shared cache rather than as
 /// on-disk Mach-O files, so `dlopen` resolves them and a file-existence check
 /// would be misleading: the code just tries each one.
 pub const LOGIN_FRAMEWORK_PATHS: [&str; 2] = [
@@ -83,7 +83,7 @@ pub fn is_available() -> bool {
 }
 
 /// Locks the screen through `SACLockScreenImmediate`. A non-zero return value
-/// from one image moves on to the next one, as the Swift app does.
+/// from one image moves on to the next one, as the 0.1.0 app did.
 pub fn lock_screen_immediate() -> Result<()> {
     let mut last_rc = None;
     for path in LOGIN_FRAMEWORK_PATHS {

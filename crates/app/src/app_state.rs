@@ -1,9 +1,8 @@
 //! `AppState`: the single owner of the store, the proximity monitor, the BLE
 //! scanner, the lock requester and autostart.
 //!
-//! The flow mirrors `macos/Sources/SignalLock/AppState.swift` (and
-//! `windows/AppState.cs`). It lives on the main thread, which is the Slint
-//! event loop thread, and is deliberately not `Send`: background work (the
+//! The flow mirrors the 0.1.0 macOS and Windows apps. It lives on the main
+//! thread, which is the Slint event loop thread, and is deliberately not `Send`: background work (the
 //! BLE task, the 1 Hz tick, the blocking lock call, the session-unlock source)
 //! posts events to it with `slint::invoke_from_event_loop`, and the closure
 //! reaches the instance through [`with_current`]. Nothing else mutates state.
@@ -20,19 +19,19 @@
 //! [`UpdateJobs`]; the result comes back as an [`UpdateEvent`] on the main
 //! thread. No update object exists until the user clicks *Check for Updates…*.
 //!
-//! Deviations from the references, all deliberate:
+//! Deviations from the 0.1.0 apps, all deliberate:
 //!
 //! - While the picker is open (discovery scan) a monitoring start does not
 //!   swap the scanner away from discovery; `stop_discovery` switches to the
 //!   monitoring scan when the picker closes. The monitor is fed from
-//!   discovery events meanwhile, as in the references.
+//!   discovery events meanwhile, as in the 0.1.0 apps.
 //! - A failed "start at login" change keeps the real autostart state instead
 //!   of writing `false`.
 //! - Picker wording and the Bluetooth warnings are platform-neutral or
 //!   per-platform (`tray.rs`, `device_picker.slint`) instead of the Mac-only
-//!   or PC-only sentences of the references; the tray tooltip exists on
-//!   Windows and Linux only (as in the references); "Last Auto-Lock" is
-//!   always 24-hour `HH:MM:SS` where the Swift reference follows the system
+//!   or PC-only sentences of the 0.1.0 apps; the tray tooltip exists on
+//!   Windows and Linux only (as in the 0.1.0 apps); "Last Auto-Lock" is
+//!   always 24-hour `HH:MM:SS` where the 0.1.0 macOS app followed the system
 //!   locale.
 
 use std::cell::{Cell, RefCell};
@@ -57,7 +56,7 @@ use crate::update_service::{
 };
 
 /// Discovered devices unseen for this long drop out of the picker list
-/// (reference behaviour).
+/// (as in the 0.1.0 apps).
 pub const DISCOVERY_STALE_AFTER: Duration = Duration::from_secs(15);
 
 /// Worst case of the install step plus the relaunch, from the helper-command
@@ -118,7 +117,7 @@ pub struct DiscoveredDevice {
 pub struct AppSnapshot {
     pub availability: BluetoothAvailability,
     pub monitoring: bool,
-    /// The away delay elapsed (`isAway` in the references).
+    /// The away delay elapsed (`isAway` in the 0.1.0 apps).
     pub away: bool,
     pub last_triggered_lock_at: Option<SystemTime>,
     pub last_seen: Option<Instant>,
@@ -571,7 +570,7 @@ impl AppState {
 
     /// Makes `id` the trusted device (the name is taken from the discovery
     /// list). A running monitor restarts on the new device; a paused one stays
-    /// paused (as in `AppState.swift` and `AppState.cs`).
+    /// paused (as in the 0.1.0 apps).
     pub fn select_device(&self, id: &DeviceId) {
         {
             let mut inner = self.inner.borrow_mut();
@@ -1131,7 +1130,7 @@ impl AppState {
     }
 
     /// The outcome of a lock request. `LockService` has already logged it;
-    /// this is the hook for the post-lock follow-up, which the references do
+    /// this is the hook for the post-lock follow-up, which the 0.1.0 apps do
     /// not have (the monitor's one-lock-per-episode guarantee is enough).
     pub fn on_lock_result(&self, result: Result<LockMethod, PlatformError>) {
         if let Err(e) = result {

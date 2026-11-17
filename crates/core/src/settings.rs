@@ -11,11 +11,11 @@ use std::ops::RangeInclusive;
 
 use serde::{Deserialize, Serialize};
 
-/// Allowed RSSI threshold in dBm (reference UI: `-100...-40`).
+/// Allowed RSSI threshold in dBm (0.1.0 UI: `-100...-40`).
 pub const RSSI_THRESHOLD_RANGE: RangeInclusive<i32> = -100..=-40;
-/// Allowed away delay in seconds (reference UI: `5...120`).
+/// Allowed away delay in seconds (0.1.0 UI: `5...120`).
 pub const AWAY_DELAY_SECONDS_RANGE: RangeInclusive<u32> = 5..=120;
-/// Allowed smoothing window in samples (reference UI: `1...20`).
+/// Allowed smoothing window in samples (0.1.0 UI: `1...20`).
 pub const RSSI_SMOOTHING_WINDOW_RANGE: RangeInclusive<u32> = 1..=20;
 
 /// User-tunable settings.
